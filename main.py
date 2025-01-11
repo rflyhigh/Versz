@@ -1,5 +1,6 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from flask_cors import CORS
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import os
@@ -16,16 +17,48 @@ import json
 load_dotenv()
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
+CORS(app)
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key')
 app.config['APP_URL'] = os.getenv('APP_URL')
 
 # MongoDB setup
-client = MongoClient(os.getenv('MONGODB_URI'))
+MONGODB_URI = os.getenv('MONGODB_URI', 'mongodb://localhost:27017/tiffin_treats')
+client = MongoClient(MONGODB_URI)
 db = client.tiffin_treats
 
 # Login manager setup
 login_manager = LoginManager()
 login_manager.init_app(app)
+
+def initialize_admin():
+    """Initialize admin user if not exists"""
+    admin_username = os.getenv('ADMIN_USERNAME')
+    admin_password = os.getenv('ADMIN_PASSWORD')
+    
+    if not admin_username or not admin_password:
+        print("Warning: Admin credentials not set in environment variables")
+        return
+    
+    existing_admin = db.users.find_one({'username': admin_username})
+    if not existing_admin:
+        hashed_password = bcrypt.hashpw(admin_password.encode('utf-8'), bcrypt.gensalt())
+        admin_user = {
+            'username': admin_username,
+            'password': hashed_password.decode('utf-8'),
+            'is_admin': True,
+            'created_at': datetime.utcnow()
+        }
+        db.users.insert_one(admin_user)
+        print("Admin user created successfully")
+
+# Root route handler
+@app.route('/')
+def index():
+    return jsonify({
+        "status": "healthy",
+        "message": "TiffinTreats API is running",
+        "version": "1.0.0"
+    })
 
 class User(UserMixin):
     def __init__(self, user_data):
@@ -279,4 +312,18 @@ def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    with app.app_context():
+        # Create indexes for better query performance
+        db.users.create_index('username', unique=True)
+        db.tiffins.create_index([('date', 1), ('time_slot', 1)])
+        db.polls.create_index('end_time')
+        
+        # Initialize admin user
+        initialize_admin()
+        
+        # Start the keep-alive thread if APP_URL is configured
+        if app.config['APP_URL']:
+            ping_thread = threading.Thread(target=keep_alive, daemon=True)
+            ping_thread.start()
+    
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)), debug=True)
