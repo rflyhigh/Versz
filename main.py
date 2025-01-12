@@ -83,7 +83,6 @@ def extract_structure_from_pdf(pdf_path):
                     if not line:
                         continue
                         
-                    # Check for chapter headings
                     if chapter_pattern.match(line):
                         current_chapter = {
                             'title': line,
@@ -92,18 +91,15 @@ def extract_structure_from_pdf(pdf_path):
                         }
                         document_structure['chapters'].append(current_chapter)
                     
-                    # Check for other headings
                     elif heading_pattern.match(line):
                         page_structure['headings'].append({
                             'text': line,
                             'position': len(page_content)
                         })
                     
-                    # Add line to current chapter if exists
                     if current_chapter:
                         current_chapter['content'].append(line)
                     
-                    # Add line to page content
                     page_content.append(line)
                 
                 page_structure['content'] = '\n'.join(page_content)
@@ -135,7 +131,6 @@ def upload_file():
             except Exception as e:
                 return jsonify({'error': str(e)}), 500
             finally:
-                # Clean up the uploaded file
                 if os.path.exists(filepath):
                     os.remove(filepath)
         
@@ -152,24 +147,12 @@ def health_check():
         'version': '1.1.0'
     }), 200
 
-@app.route('/metrics', methods=['GET'])
-def get_metrics():
-    return jsonify({
-        'status': 'operational',
-        'uptime': scheduler.running,
-        'lastPing': datetime.now().isoformat()
-    }), 200
-
 def initialize_scheduler():
     if not scheduler.running:
         scheduler.add_job(func=ping_server, trigger="interval", minutes=14)
         scheduler.start()
         logger.info("Scheduler started successfully")
 
-@app.before_first_request
-def before_first_request():
-    initialize_scheduler()
-
 if __name__ == '__main__':
     initialize_scheduler()
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
