@@ -37,6 +37,23 @@ class Heading:
     page_number: int
     position: int
 
+
+@dataclass
+class TableCell:
+    text: str
+    row: int
+    col: int
+    rowspan: int = 1
+    colspan: int = 1
+
+@dataclass
+class Table:
+    cells: List[TableCell]
+    bbox: Tuple[float, float, float, float]
+    page_number: int
+    row_count: int
+    col_count: int
+
 @dataclass
 class Page:
     number: int
@@ -68,6 +85,12 @@ class PDFProcessor:
             re.compile(r'^Copyright'),
             re.compile(r'^All rights reserved'),
         ]
+        self.table_markers = [
+            re.compile(r'^Table\s+\d+'),
+            re.compile(r'^\s*\|.*\|.*\|\s*$'),  # Markdown-style tables
+            re.compile(r'^\s*[-+]+[-+|]+[-+]+\s*$')  # Table separators
+        ]
+
 
     def is_heading(self, text: str) -> tuple[bool, int]:
         if self.heading_patterns['chapter'].match(text):
@@ -86,17 +109,97 @@ class PDFProcessor:
     def extract_tables(self, page: fitz.Page) -> List[Dict]:
         tables = []
         try:
-            blocks = page.get_text("dict")["blocks"]
-            for block in blocks:
-                if block.get("type") == 1:  # Type 1 indicates table
-                    tables.append({
-                        'bbox': block['bbox'],
-                        'content': block['lines']
-                    })
+            # Get page dimensions for relative positioning
+            page_rect = page.rect
+            
+            # Get blocks that might contain tables
+            blocks = page.get_text("dict", flags=fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_PRESERVE_WHITESPACE)
+            
+            current_table = None
+            current_cells = []
+            
+            for block in blocks.get("blocks", []):
+                if block.get("type") == 0:  # Text block
+                    lines = block.get("lines", [])
+                    
+                    # Check if this block looks like a table
+                    is_table_content = False
+                    for line in lines:
+                        spans = line.get("spans", [])
+                        if spans:
+                            text = "".join(span.get("text", "") for span in spans)
+                            if any(pattern.match(text) for pattern in self.table_markers):
+                                is_table_content = True
+                                break
+                    
+                    if is_table_content:
+                        # Process as table content
+                        if not current_table:
+                            current_table = {
+                                "bbox": block["bbox"],
+                                "rows": [],
+                                "col_count": 0
+                            }
+                        
+                        # Extract cells from lines
+                        for line in lines:
+                            row = []
+                            for span in line.get("spans", []):
+                                text = span.get("text", "").strip()
+                                if text:
+                                    cell = {
+                                        "text": text,
+                                        "bbox": span["bbox"],
+                                        "font": span.get("font", ""),
+                                        "size": span.get("size", 0)
+                                    }
+                                    row.append(cell)
+                            
+                            if row:
+                                current_table["rows"].append(row)
+                                current_table["col_count"] = max(
+                                    current_table["col_count"],
+                                    len(row)
+                                )
+                    
+                    elif current_table:
+                        # End of table detected
+                        if current_table["rows"]:
+                            tables.append(self._normalize_table(current_table))
+                        current_table = None
+            
+            # Add any remaining table
+            if current_table and current_table["rows"]:
+                tables.append(self._normalize_table(current_table))
+            
+            return tables
+        
         except Exception as e:
             logger.warning(f"Table extraction error: {str(e)}")
-        return tables
+            return []
 
+    def _normalize_table(self, table_data: Dict) -> Dict:
+        """Normalizes table data to ensure consistent structure."""
+        normalized = {
+            "bbox": table_data["bbox"],
+            "cells": [],
+            "row_count": len(table_data["rows"]),
+            "col_count": table_data["col_count"]
+        }
+        
+        # Normalize cells into a regular grid
+        for row_idx, row in enumerate(table_data["rows"]):
+            for col_idx, cell in enumerate(row):
+                normalized["cells"].append({
+                    "text": cell["text"],
+                    "row": row_idx,
+                    "col": col_idx,
+                    "bbox": cell["bbox"],
+                    "font": cell.get("font", ""),
+                    "size": cell.get("size", 0)
+                })
+        
+        return normalized
     def extract_images(self, page: fitz.Page) -> List[Dict]:
         images = []
         try:
