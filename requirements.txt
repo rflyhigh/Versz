@@ -4,3 +4,5 @@ flask-cors==4.0.0
 PyPDF2==3.0.1
 APScheduler==3.10.1
 requests==2.31.0
+PyMuPDF
+nltk
