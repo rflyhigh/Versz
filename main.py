@@ -8,7 +8,7 @@ import re
 import requests
 import logging
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional
 import fitz  # PyMuPDF
 import nltk
@@ -86,7 +86,6 @@ class PDFProcessor:
     def extract_tables(self, page: fitz.Page) -> List[Dict]:
         tables = []
         try:
-            # Find table-like structures using layout analysis
             blocks = page.get_text("dict")["blocks"]
             for block in blocks:
                 if block.get("type") == 1:  # Type 1 indicates table
@@ -139,62 +138,69 @@ class PDFProcessor:
                 first_page = doc[0]
                 text_blocks = first_page.get_text("blocks")
                 if text_blocks:
-                    # Usually the first large text block is the title
                     document_structure['title'] = text_blocks[0][4].strip()
 
             current_chapter = None
             toc = doc.get_toc()
             chapter_page_ranges = self._get_chapter_ranges(toc, len(doc))
 
-            with ThreadPoolExecutor() as executor:
-                # Process pages in parallel
-                future_to_page = {
-                    executor.submit(self._process_page, doc[page_num], page_num): page_num
-                    for page_num in range(len(doc))
-                }
+            try:
+                with ThreadPoolExecutor() as executor:
+                    future_to_page = {
+                        executor.submit(self._process_page, doc[page_num], page_num): page_num
+                        for page_num in range(len(doc))
+                    }
 
-                for future in futures.as_completed(future_to_page):
-                    page_num = future_to_page[future]
-                    try:
-                        page_structure = future.result()
-                        document_structure['pages'].append(page_structure)
-                        
-                        # Organize content into chapters
-                        chapter_info = next(
-                            (ch for ch in chapter_page_ranges if ch['start'] <= page_num <= ch.get('end', len(doc)-1)),
-                            None
-                        )
-                        
-                        if chapter_info and chapter_info['start'] == page_num:
-                            current_chapter = Chapter(
-                                title=chapter_info['title'],
-                                page_start=page_num + 1,
-                                page_end=chapter_info.get('end'),
-                                content=[],
-                                subsections=[]
-                            )
-                            document_structure['chapters'].append(asdict(current_chapter))
-                        
-                        if current_chapter:
-                            current_chapter.content.extend(page_structure.paragraphs)
+                    processed_pages = []
+                    for future in as_completed(future_to_page):
+                        page_num = future_to_page[future]
+                        try:
+                            page_structure = future.result()
+                            processed_pages.append(page_structure)
                             
-                            # Add subsections based on headings
-                            for heading in page_structure.headings:
-                                if heading['level'] > 1:  # Skip chapter headings
-                                    current_chapter.subsections.append({
-                                        'title': heading['text'],
-                                        'page': page_num + 1,
-                                        'level': heading['level']
-                                    })
+                            chapter_info = next(
+                                (ch for ch in chapter_page_ranges if ch['start'] <= page_num <= ch.get('end', len(doc)-1)),
+                                None
+                            )
+                            
+                            if chapter_info and chapter_info['start'] == page_num:
+                                current_chapter = Chapter(
+                                    title=chapter_info['title'],
+                                    page_start=page_num + 1,
+                                    page_end=chapter_info.get('end'),
+                                    content=[],
+                                    subsections=[]
+                                )
+                                document_structure['chapters'].append(asdict(current_chapter))
+                            
+                            if current_chapter:
+                                current_chapter.content.extend(page_structure.paragraphs)
+                                
+                                for heading in page_structure.headings:
+                                    if heading['level'] > 1:
+                                        current_chapter.subsections.append({
+                                            'title': heading['text'],
+                                            'page': page_num + 1,
+                                            'level': heading['level']
+                                        })
 
-            # Sort pages and clean up content
-            document_structure['pages'].sort(key=lambda x: x['number'])
-            
+                    # Sort pages after all processing is complete
+                    processed_pages.sort(key=lambda x: x.number)
+                    document_structure['pages'] = [asdict(page) for page in processed_pages]
+
+            except Exception as e:
+                logger.error(f"Error processing pages: {str(e)}")
+                raise
+
             return document_structure
 
         except Exception as e:
             logger.error(f"PDF processing error: {str(e)}")
             raise Exception(f"Failed to process PDF file: {str(e)}")
+
+        finally:
+            if 'doc' in locals():
+                doc.close()
 
     def _get_chapter_ranges(self, toc: List, total_pages: int) -> List[Dict]:
         chapter_ranges = []
@@ -235,12 +241,10 @@ class PDFProcessor:
             else:
                 current_paragraph.append(line)
                 
-                # Check if it's the end of a paragraph
                 if line.endswith('.') or line.endswith('?') or line.endswith('!'):
                     paragraphs.append(' '.join(current_paragraph))
                     current_paragraph = []
 
-        # Add any remaining paragraph
         if current_paragraph:
             paragraphs.append(' '.join(current_paragraph))
 
