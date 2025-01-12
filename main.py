@@ -5,7 +5,6 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import os
 import PyPDF2
 import re
-import json
 import requests
 import logging
 from datetime import datetime
@@ -61,7 +60,7 @@ def extract_structure_from_pdf(pdf_path):
             # Extract text from first page to find title
             first_page = pdf_reader.pages[0].extract_text()
             lines = first_page.split('\n')
-            document_structure['title'] = lines[0].strip()
+            document_structure['title'] = lines[0].strip() if lines else ''
             
             current_chapter = None
             chapter_pattern = re.compile(r'^(?:Chapter|CHAPTER)\s+\d+|^\d+\.\s+')
