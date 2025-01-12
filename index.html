@@ -149,6 +149,7 @@
 
         .content {
             font-size: 18px;
+            white-space: pre-wrap;
         }
 
         .progress-bar {
@@ -193,13 +194,12 @@
             right: 0;
             bottom: 0;
             background: rgba(0, 0, 0, 0.5);
-            display: flex;
+            display: none;
             align-items: center;
             justify-content: center;
             z-index: 1000;
             color: white;
             font-size: 20px;
-            display: none;
         }
 
         .pagination {
@@ -229,6 +229,10 @@
 
         .bookmark-item:hover {
             background: rgba(37, 99, 235, 0.1);
+        }
+
+        .menu-toggle {
+            display: none;
         }
 
         @media (max-width: 768px) {
@@ -281,12 +285,12 @@
     </div>
 
     <div class="layout" id="readerLayout">
-        <div class="sidebar">
+        <div class="sidebar" id="sidebar">
             <div class="controls">
                 <div class="theme-selector">
-                    <div class="theme-option active" style="background: #ffffff" onclick="setTheme('light')"></div>
-                    <div class="theme-option" style="background: #111827" onclick="setTheme('dark')"></div>
-                    <div class="theme-option" style="background: #fef3c7" onclick="setTheme('sepia')"></div>
+                    <div class="theme-option active" data-theme="light" style="background: #ffffff"></div>
+                    <div class="theme-option" data-theme="dark" style="background: #111827"></div>
+                    <div class="theme-option" data-theme="sepia" style="background: #fef3c7"></div>
                 </div>
                 <div class="control-group">
                     <button onclick="decreaseFontSize()">A-</button>
@@ -309,7 +313,7 @@
         
         <div class="content-wrapper">
             <div class="progress-bar">
-                <div class="progress"></div>
+                <div class="progress" id="progress"></div>
             </div>
             <div class="content" id="content"></div>
             <div class="pagination">
@@ -340,6 +344,16 @@
         const loading = document.getElementById('loading');
         const errorMessage = document.getElementById('errorMessage');
         const pageInfo = document.getElementById('pageInfo');
+        const progress = document.getElementById('progress');
+        const sidebar = document.getElementById('sidebar');
+
+        // Theme handling
+        document.querySelectorAll('.theme-option').forEach(option => {
+            option.addEventListener('click', (e) => {
+                const theme = e.target.dataset.theme;
+                setTheme(theme);
+            });
+        });
 
         // Upload handling
         document.getElementById('uploadArea').addEventListener('click', () => {
@@ -352,6 +366,12 @@
             const file = event.target.files[0];
             if (!file) return;
 
+            if (file.type !== 'application/pdf') {
+                errorMessage.textContent = 'Please upload a PDF file';
+                errorMessage.style.display = 'block';
+                return;
+            }
+
             const formData = new FormData();
             formData.append('file', file);
 
@@ -362,7 +382,12 @@
                 method: 'POST',
                 body: formData
             })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
             .then(data => {
                 if (data.error) {
                     throw new Error(data.error);
@@ -371,7 +396,7 @@
                 initializeReader();
             })
             .catch(error => {
-                errorMessage.textContent = error.message;
+                errorMessage.textContent = error.message || 'Error processing PDF';
                 errorMessage.style.display = 'block';
             })
             .finally(() => {
@@ -385,35 +410,48 @@
             
             // Initialize chapters
             chapterList.innerHTML = '';
-            currentDocument.chapters.forEach((chapter, index) => {
-                const div = document.createElement('div');
-                div.className = 'chapter-item';
-                div.textContent = chapter.title;
-                div.onclick = () => navigateToPage(chapter.page - 1);
-                chapterList.appendChild(div);
-            });
+            if (currentDocument.chapters) {
+                currentDocument.chapters.forEach((chapter, index) => {
+                    const div = document.createElement('div');
+                    div.className = 'chapter-item';
+                    div.textContent = chapter.title;
+                    div.onclick = () => navigateToPage(chapter.page - 1);
+                    chapterList.appendChild(div);
+                });
+            }
 
             // Show first page
             showPage(0);
             updatePageInfo();
+            loadBookmarks();
         }
 
         function showPage(pageNum) {
-            if (pageNum < 0 || pageNum >= currentDocument.pages.length) return;
+            if (!currentDocument || !currentDocument.pages || 
+                pageNum < 0 || pageNum >= currentDocument.pages.length) return;
             
             currentPage = pageNum;
             content.innerHTML = currentDocument.pages[pageNum].content;
             updatePageInfo();
             updateProgress();
+            
+            // Update active chapter
+            document.querySelectorAll('.chapter-item').forEach(item => {
+                item.classList.remove('active');
+            });
         }
 
         function updatePageInfo() {
-            pageInfo.textContent = `Page ${currentPage + 1} of ${currentDocument.pages.length}`;
+            if (currentDocument && currentDocument.pages) {
+                pageInfo.textContent = `Page ${currentPage + 1} of ${currentDocument.pages.length}`;
+            }
         }
 
         function updateProgress() {
-            const progress = ((currentPage + 1) / currentDocument.pages.length) * 100;
-            document.querySelector('.progress').style.width = `${progress}%`;
+            if (currentDocument && currentDocument.pages) {
+                const progressValue = ((currentPage + 1) / currentDocument.pages.length) * 100;
+                progress.style.width = `${progressValue}%`;
+            }
         }
 
         function navigateToPage(pageNum) {
@@ -422,164 +460,227 @@
         }
 
         function previousPage() {
-            navigateToPage(currentPage - 1);
+            if (currentPage > 0) {
+                navigateToPage(currentPage - 1);
+            }
         }
 
         function nextPage() {
-            navigateToPage(currentPage + 1);
+            if (currentDocument && currentDocument.pages && currentPage < currentDocument.pages.length - 1) {
+                navigateToPage(currentPage + 1);
+            }
         }
 
         function addBookmark() {
+            if (!currentDocument) return;
+            
             const bookmark = {
                 page: currentPage,
                 title: `Page ${currentPage + 1} Bookmark`,
                 timestamp: new Date().toISOString()
             };
             bookmarks.push(bookmark);
-            localStorage.setItem('bookmarks', JSON.stringify(bookmarks));
+            saveBookmarks();
             updateBookmarks();
+        }
+
+        function saveBookmarks() {
+            localStorage.setItem('bookmarks', JSON.stringify(bookmarks));
+        }
+
+        function loadBookmarks() {
+            try {
+                const saved = localStorage.getItem('bookmarks');
+                if (saved) {
+                    bookmarks = JSON.parse(saved);
+                    updateBookmarks();
+                }
+            } catch (error) {
+                console.error('Error loading bookmarks:', error);
+                bookmarks = [];
+            }
         }
 
         function updateBookmarks() {
             bookmarkList.innerHTML = '<h3>Bookmarks</h3>';
             bookmarks.forEach((bookmark, index) => {
-                const div = document.createElement('div');
-                div.className = 'bookmark-item';
-                div.textContent = bookmark.title;
-                div.onclick = () => navigateToPage(bookmark.page);
-                bookmarkList.appendChild(div);
-            });
-        }
-
-        function uploadNewFile() {
-            currentDocument = null;
-            currentPage = 0;
-            bookmarks = [];
-            uploadContainer.style.display = 'flex';
-            readerLayout.style.display = 'none';
-        }
-
-        // Theme and display controls
-        function setTheme(theme) {
-            document.body.classList.remove('dark-mode', 'sepia-mode');
-            if (theme === 'dark') {
-                document.body.classList.add('dark-mode');
-            } else if (theme === 'sepia') {
-                document.body.classList.add('sepia-mode');
+                    const div = document.createElement('div');
+                    div.className = 'bookmark-item';
+                    div.innerHTML = `
+                        <span>${bookmark.title}</span>
+                        <button onclick="removeBookmark(${index})" style="padding: 2px 6px;">×</button>
+                    `;
+                    div.onclick = (e) => {
+                        if (e.target.tagName !== 'BUTTON') {
+                            navigateToPage(bookmark.page);
+                        }
+                    };
+                    bookmarkList.appendChild(div);
+                });
             }
-            
-            document.querySelectorAll('.theme-option').forEach(option => {
-                option.classList.remove('active');
-            });
-            event.target.classList.add('active');
-        }
 
-        function toggleLineSpacing() {
-            lineSpacing = lineSpacing === 1.75 ? 2 : 1.75;
-            content.style.lineHeight = lineSpacing;
-        }
-
-        function toggleFullscreen() {
-            if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen();
-            } else {
-                document.exitFullscreen();
-            }
-        }
-
-        function increaseFontSize() {
-            if (currentFontSize < 24) {
-                currentFontSize += 2;
-                content.style.fontSize = currentFontSize + 'px';
-            }
-        }
-
-        function decreaseFontSize() {
-            if (currentFontSize > 14) {
-                currentFontSize -= 2;
-                content.style.fontSize = currentFontSize + 'px';
-            }
-        }
-
-        function toggleSidebar() {
-            document.querySelector('.sidebar').classList.toggle('active');
-        }
-
-        // Load saved bookmarks
-        try {
-            const savedBookmarks = localStorage.getItem('bookmarks');
-            if (savedBookmarks) {
-                bookmarks = JSON.parse(savedBookmarks);
+            function removeBookmark(index) {
+                bookmarks.splice(index, 1);
+                saveBookmarks();
                 updateBookmarks();
             }
-        } catch (error) {
-            console.error('Error loading bookmarks:', error);
-        }
 
-        // Keyboard shortcuts
-        document.addEventListener('keydown', (e) => {
-            if (e.ctrlKey || e.metaKey) {
-                if (e.key === '=') {
+            function uploadNewFile() {
+                currentDocument = null;
+                currentPage = 0;
+                bookmarks = [];
+                saveBookmarks();
+                uploadContainer.style.display = 'flex';
+                readerLayout.style.display = 'none';
+                content.innerHTML = '';
+                document.getElementById('fileInput').value = '';
+            }
+
+            // Theme and display controls
+            function setTheme(theme) {
+                document.body.classList.remove('dark-mode', 'sepia-mode');
+                if (theme === 'dark') {
+                    document.body.classList.add('dark-mode');
+                } else if (theme === 'sepia') {
+                    document.body.classList.add('sepia-mode');
+                }
+                
+                document.querySelectorAll('.theme-option').forEach(option => {
+                    option.classList.remove('active');
+                    if (option.dataset.theme === theme) {
+                        option.classList.add('active');
+                    }
+                });
+
+                localStorage.setItem('theme', theme);
+            }
+
+            function toggleLineSpacing() {
+                lineSpacing = lineSpacing === 1.75 ? 2 : 1.75;
+                content.style.lineHeight = lineSpacing;
+                localStorage.setItem('lineSpacing', lineSpacing);
+            }
+
+            function toggleFullscreen() {
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen().catch(err => {
+                        console.error(`Error attempting to enable fullscreen: ${err.message}`);
+                    });
+                } else {
+                    if (document.exitFullscreen) {
+                        document.exitFullscreen();
+                    }
+                }
+            }
+
+            function increaseFontSize() {
+                if (currentFontSize < 24) {
+                    currentFontSize += 2;
+                    content.style.fontSize = `${currentFontSize}px`;
+                    localStorage.setItem('fontSize', currentFontSize);
+                }
+            }
+
+            function decreaseFontSize() {
+                if (currentFontSize > 14) {
+                    currentFontSize -= 2;
+                    content.style.fontSize = `${currentFontSize}px`;
+                    localStorage.setItem('fontSize', currentFontSize);
+                }
+            }
+
+            function toggleSidebar() {
+                sidebar.classList.toggle('active');
+            }
+
+            // Load saved preferences
+            function loadPreferences() {
+                try {
+                    // Load theme
+                    const savedTheme = localStorage.getItem('theme');
+                    if (savedTheme) {
+                        setTheme(savedTheme);
+                    }
+
+                    // Load font size
+                    const savedFontSize = localStorage.getItem('fontSize');
+                    if (savedFontSize) {
+                        currentFontSize = parseInt(savedFontSize);
+                        content.style.fontSize = `${currentFontSize}px`;
+                    }
+
+                    // Load line spacing
+                    const savedLineSpacing = localStorage.getItem('lineSpacing');
+                    if (savedLineSpacing) {
+                        lineSpacing = parseFloat(savedLineSpacing);
+                        content.style.lineHeight = lineSpacing;
+                    }
+                } catch (error) {
+                    console.error('Error loading preferences:', error);
+                }
+            }
+
+            // Keyboard shortcuts
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'ArrowLeft') {
+                    previousPage();
+                } else if (e.key === 'ArrowRight') {
+                    nextPage();
+                } else if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+                    e.preventDefault();
+                    addBookmark();
+                } else if (e.key === 'f' && !e.ctrlKey && !e.metaKey) {
+                    e.preventDefault();
+                    toggleFullscreen();
+                } else if ((e.ctrlKey || e.metaKey) && e.key === '=') {
                     e.preventDefault();
                     increaseFontSize();
-                } else if (e.key === '-') {
+                } else if ((e.ctrlKey || e.metaKey) && e.key === '-') {
                     e.preventDefault();
                     decreaseFontSize();
                 }
-            }
-            if (e.key === 'f') {
+            });
+
+            // Handle drag and drop
+            const uploadArea = document.getElementById('uploadArea');
+
+            uploadArea.addEventListener('dragover', (e) => {
                 e.preventDefault();
-                toggleFullscreen();
-            }
-            if (e.key === 'ArrowLeft') {
-                previousPage();
-            }
-            if (e.key === 'ArrowRight') {
-                nextPage();
-            }
-            if (e.key === 'b' && e.ctrlKey) {
+                uploadArea.style.borderColor = 'var(--primary-color)';
+                uploadArea.style.background = 'rgba(37, 99, 235, 0.05)';
+            });
+
+            uploadArea.addEventListener('dragleave', (e) => {
                 e.preventDefault();
-                addBookmark();
-            }
-        });
+                uploadArea.style.borderColor = 'var(--border-color)';
+                uploadArea.style.background = 'transparent';
+            });
 
-        // Handle drag and drop
-        const uploadArea = document.getElementById('uploadArea');
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.style.borderColor = 'var(--border-color)';
+                uploadArea.style.background = 'transparent';
+                
+                const file = e.dataTransfer.files[0];
+                if (file && file.type === 'application/pdf') {
+                    const fileInput = document.getElementById('fileInput');
+                    fileInput.files = e.dataTransfer.files;
+                    handleFileUpload({ target: fileInput });
+                } else {
+                    errorMessage.textContent = 'Please upload a PDF file';
+                    errorMessage.style.display = 'block';
+                }
+            });
 
-        uploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadArea.style.borderColor = var(--primary-color);
-            uploadArea.style.background = 'rgba(37, 99, 235, 0.05)';
-        });
+            // Handle window resize
+            window.addEventListener('resize', () => {
+                if (window.innerWidth > 768) {
+                    sidebar.classList.remove('active');
+                }
+            });
 
-        uploadArea.addEventListener('dragleave', (e) => {
-            e.preventDefault();
-            uploadArea.style.borderColor = var(--border-color);
-            uploadArea.style.background = 'transparent';
-        });
-
-        uploadArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadArea.style.borderColor = var(--border-color);
-            uploadArea.style.background = 'transparent';
-            
-            const file = e.dataTransfer.files[0];
-            if (file && file.type === 'application/pdf') {
-                const fileInput = document.getElementById('fileInput');
-                fileInput.files = e.dataTransfer.files;
-                handleFileUpload({ target: fileInput });
-            } else {
-                errorMessage.textContent = 'Please upload a PDF file';
-                errorMessage.style.display = 'block';
-            }
-        });
-
-        // Handle window resize
-        window.addEventListener('resize', () => {
-            if (window.innerWidth > 768) {
-                document.querySelector('.sidebar').classList.remove('active');
-            }
-        });
-    </script>
-</body>
+            // Initialize preferences on load
+            loadPreferences();
+        </script>
+    </body>
 </html>
