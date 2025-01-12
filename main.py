@@ -19,7 +19,7 @@ CORS(app)
 
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'pdf'}
-APP_URL = os.getenv('APP_URL', 'https://your-app-url.onrender.com')
+APP_URL = os.getenv('APP_URL', 'https://tiffintreats.onrender.com')
 
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
