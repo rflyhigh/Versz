@@ -116,6 +116,7 @@ class PDFProcessor:
         return images
 
     def process_pdf(self, file_path: str) -> Dict:
+        doc = None
         try:
             doc = fitz.open(file_path)
             document_structure = {
@@ -133,7 +134,6 @@ class PDFProcessor:
                 }
             }
 
-            # Process first page for title
             if len(doc) > 0:
                 first_page = doc[0]
                 text_blocks = first_page.get_text("blocks")
@@ -143,55 +143,50 @@ class PDFProcessor:
             current_chapter = None
             toc = doc.get_toc()
             chapter_page_ranges = self._get_chapter_ranges(toc, len(doc))
+            processed_pages = []
 
-            try:
-                with ThreadPoolExecutor() as executor:
-                    future_to_page = {
-                        executor.submit(self._process_page, doc[page_num], page_num): page_num
-                        for page_num in range(len(doc))
-                    }
+            with ThreadPoolExecutor() as executor:
+                future_to_page = {
+                    executor.submit(self._process_page, doc[page_num], page_num): page_num
+                    for page_num in range(len(doc))
+                }
 
-                    processed_pages = []
-                    for future in as_completed(future_to_page):
-                        page_num = future_to_page[future]
-                        try:
-                            page_structure = future.result()
-                            processed_pages.append(page_structure)
-                            
-                            chapter_info = next(
-                                (ch for ch in chapter_page_ranges if ch['start'] <= page_num <= ch.get('end', len(doc)-1)),
-                                None
+                for future in as_completed(future_to_page):
+                    page_num = future_to_page[future]
+                    try:
+                        page_structure = future.result()
+                        processed_pages.append(page_structure)
+                        
+                        chapter_info = next(
+                            (ch for ch in chapter_page_ranges if ch['start'] <= page_num <= ch.get('end', len(doc)-1)),
+                            None
+                        )
+                        
+                        if chapter_info and chapter_info['start'] == page_num:
+                            current_chapter = Chapter(
+                                title=chapter_info['title'],
+                                page_start=page_num + 1,
+                                page_end=chapter_info.get('end'),
+                                content=[],
+                                subsections=[]
                             )
+                            document_structure['chapters'].append(asdict(current_chapter))
+                        
+                        if current_chapter:
+                            current_chapter.content.extend(page_structure.paragraphs)
                             
-                            if chapter_info and chapter_info['start'] == page_num:
-                                current_chapter = Chapter(
-                                    title=chapter_info['title'],
-                                    page_start=page_num + 1,
-                                    page_end=chapter_info.get('end'),
-                                    content=[],
-                                    subsections=[]
-                                )
-                                document_structure['chapters'].append(asdict(current_chapter))
-                            
-                            if current_chapter:
-                                current_chapter.content.extend(page_structure.paragraphs)
-                                
-                                for heading in page_structure.headings:
-                                    if heading['level'] > 1:
-                                        current_chapter.subsections.append({
-                                            'title': heading['text'],
-                                            'page': page_num + 1,
-                                            'level': heading['level']
-                                        })
+                            for heading in page_structure.headings:
+                                if heading['level'] > 1:
+                                    current_chapter.subsections.append({
+                                        'title': heading['text'],
+                                        'page': page_num + 1,
+                                        'level': heading['level']
+                                    })
+                    except Exception as e:
+                        logger.error(f"Error processing page {page_num}: {str(e)}")
 
-                    # Sort pages after all processing is complete
-                    processed_pages.sort(key=lambda x: x.number)
-                    document_structure['pages'] = [asdict(page) for page in processed_pages]
-
-            except Exception as e:
-                logger.error(f"Error processing pages: {str(e)}")
-                raise
-
+            processed_pages.sort(key=lambda x: x.number)
+            document_structure['pages'] = [asdict(page) for page in processed_pages]
             return document_structure
 
         except Exception as e:
@@ -199,7 +194,7 @@ class PDFProcessor:
             raise Exception(f"Failed to process PDF file: {str(e)}")
 
         finally:
-            if 'doc' in locals():
+            if doc:
                 doc.close()
 
     def _get_chapter_ranges(self, toc: List, total_pages: int) -> List[Dict]:
@@ -263,7 +258,7 @@ CORS(app)
 
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'pdf'}
-APP_URL = os.getenv('APP_URL', 'http://localhost:8080')
+APP_URL = os.getenv('APP_URL', 'https://tiffintreats.onrender.com')
 
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
