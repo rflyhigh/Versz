@@ -49,7 +49,7 @@ class TableCell:
 @dataclass
 class Table:
     cells: List[TableCell]
-    bbox: Tuple[float, float, float, float]
+    bbox: tuple[float, float, float, float]
     page_number: int
     row_count: int
     col_count: int
