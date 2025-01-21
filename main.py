@@ -24,11 +24,44 @@ load_dotenv()
 # Initialize database client
 client = None
 db = None
+keep_alive_task = None
+
+# Keep-alive mechanism
+async def keep_alive():
+    while True:
+        try:
+            await asyncio.sleep(30)  # Reduced interval to 30 seconds
+            if client and db:
+                # Perform a lightweight database operation
+                await db.ping.find_one({"_id": "ping"})
+                # Insert or update timestamp
+                await db.ping.update_one(
+                    {"_id": "ping"},
+                    {"$set": {"last_ping": datetime.utcnow()}},
+                    upsert=True
+                )
+                logger.info("Keep-alive ping successful")
+        except Exception as e:
+            logger.error(f"Keep-alive error: {str(e)}")
+            try:
+                # Attempt to reconnect to MongoDB
+                global client, db
+                if client:
+                    client.close()
+                mongodb_url = os.getenv("MONGODB_URL")
+                client = AsyncIOMotorClient(mongodb_url, serverSelectionTimeoutMS=5000)
+                db = client.versz
+                await client.admin.command('ping')
+                logger.info("Successfully reconnected to MongoDB")
+            except Exception as reconnect_error:
+                logger.error(f"Reconnection failed: {str(reconnect_error)}")
+            finally:
+                await asyncio.sleep(5)  # Wait before retrying
 
 # Lifecycle management
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global client, db
+    global client, db, keep_alive_task
     try:
         # Startup
         logger.info("Starting up application...")
@@ -36,7 +69,11 @@ async def lifespan(app: FastAPI):
         if not mongodb_url:
             raise ValueError("MONGODB_URL environment variable not set")
         
-        client = AsyncIOMotorClient(mongodb_url, serverSelectionTimeoutMS=5000)
+        client = AsyncIOMotorClient(mongodb_url, 
+                                  serverSelectionTimeoutMS=5000,
+                                  connectTimeoutMS=5000,
+                                  socketTimeoutMS=5000,
+                                  maxIdleTimeMS=60000)
         db = client.versz
         
         # Verify database connection
@@ -50,11 +87,12 @@ async def lifespan(app: FastAPI):
         
         # Shutdown
         logger.info("Shutting down application...")
-        keep_alive_task.cancel()
-        try:
-            await keep_alive_task
-        except asyncio.CancelledError:
-            pass
+        if keep_alive_task and not keep_alive_task.done():
+            keep_alive_task.cancel()
+            try:
+                await keep_alive_task
+            except asyncio.CancelledError:
+                pass
         
         if client:
             client.close()
@@ -123,18 +161,6 @@ class LyricsContent(BaseModel):
 class LyricsShare(BaseModel):
     extension: str
     content: LyricsContent
-
-# Keep-alive mechanism
-async def keep_alive():
-    while True:
-        try:
-            await asyncio.sleep(60 * 10)  # 10 minutes
-            # Perform a lightweight database operation
-            await db.ping.find_one({"_id": "ping"})
-            logger.info("Keep-alive ping successful")
-        except Exception as e:
-            logger.error(f"Keep-alive error: {str(e)}")
-            await asyncio.sleep(5)  # Wait before retrying
 
 # Authentication functions
 async def verify_password(plain_password, hashed_password):
@@ -243,8 +269,9 @@ async def create_lyrics(content: LyricsContent, current_user: dict = Depends(get
 @app.put("/lyrics/{lyrics_id}")
 async def update_lyrics(lyrics_id: str, content: LyricsContent, current_user: dict = Depends(get_current_user)):
     try:
+        from bson import ObjectId
         result = await db.lyrics.update_one(
-            {"_id": lyrics_id, "username": current_user["username"]},
+            {"_id": ObjectId(lyrics_id), "username": current_user["username"]},
             {
                 "$set": {
                     "content": content.dict(),
@@ -297,5 +324,7 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=port,
         log_level="info",
-        timeout_keep_alive=65,  # Increased keep-alive timeout
+        timeout_keep_alive=300,  # Increased keep-alive timeout to 5 minutes
+        loop="uvloop",  # Using uvloop for better performance
+        workers=1  # Single worker to maintain consistent keep-alive task
     )
