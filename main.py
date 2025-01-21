@@ -1,6 +1,6 @@
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Depends, status, Request
+from fastapi import FastAPI, HTTPException, Depends, status, Request, Form
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -13,6 +13,7 @@ import asyncio
 import uvicorn
 from dotenv import load_dotenv
 import logging
+from typing import Optional
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -45,11 +46,9 @@ async def reconnect_db():
 async def keep_alive():
     while True:
         try:
-            await asyncio.sleep(30)  # Reduced interval to 30 seconds
-            if client and db:
-                # Perform a lightweight database operation
-                await db.ping.find_one({"_id": "ping"})
-                # Insert or update timestamp
+            await asyncio.sleep(30)
+            if client is not None and db is not None:
+                await db.command('ping')
                 await db.ping.update_one(
                     {"_id": "ping"},
                     {"$set": {"last_ping": datetime.utcnow()}},
@@ -63,7 +62,7 @@ async def keep_alive():
             except Exception as reconnect_error:
                 logger.error(f"Reconnection failed: {str(reconnect_error)}")
             finally:
-                await asyncio.sleep(5)  # Wait before retrying
+                await asyncio.sleep(5)
 
 # Lifecycle management
 @asynccontextmanager
@@ -143,6 +142,13 @@ class User(BaseModel):
     name: str
     password: str
 
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class TokenData(BaseModel):
+    username: Optional[str] = None
+
 class LyricsContent(BaseModel):
     title: str
     subtitle: str
@@ -157,22 +163,26 @@ class LyricsShare(BaseModel):
     content: LyricsContent
 
 # Authentication functions
-async def verify_password(plain_password, hashed_password):
+def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
-async def get_password_hash(password):
+def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
-async def create_access_token(data: dict):
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
     to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid credentials",
+        detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
@@ -180,10 +190,11 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception
+        token_data = TokenData(username=username)
     except JWTError:
         raise credentials_exception
     
-    user = await db.users.find_one({"username": username})
+    user = await db.users.find_one({"username": token_data.username})
     if user is None:
         raise credentials_exception
     return user
@@ -192,20 +203,20 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 @app.get("/health")
 async def health_check():
     try:
-        await db.ping.find_one({"_id": "ping"})
+        await db.command('ping')
         return {"status": "healthy"}
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
         raise HTTPException(status_code=503, detail="Service unavailable")
 
-# Endpoints
+# Auth endpoints
 @app.post("/register")
 async def register(user: User):
     try:
         if await db.users.find_one({"username": user.username}):
             raise HTTPException(status_code=400, detail="Username already registered")
         
-        hashed_password = await get_password_hash(user.password)
+        hashed_password = get_password_hash(user.password)
         user_dict = user.dict()
         user_dict["password"] = hashed_password
         user_dict["created_at"] = datetime.utcnow()
@@ -213,28 +224,36 @@ async def register(user: User):
         await db.users.insert_one(user_dict)
         logger.info(f"User registered successfully: {user.username}")
         return {"message": "User registered successfully"}
+    except HTTPException as he:
+        raise he
     except Exception as e:
         logger.error(f"Registration error: {str(e)}")
-        raise
+        raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.post("/token")
+@app.post("/token", response_model=Token)
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     try:
         user = await db.users.find_one({"username": form_data.username})
-        if not user or not await verify_password(form_data.password, user["password"]):
+        if not user or not verify_password(form_data.password, user["password"]):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect username or password",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        access_token = await create_access_token({"sub": user["username"]})
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": user["username"]}, expires_delta=access_token_expires
+        )
         logger.info(f"User logged in successfully: {form_data.username}")
         return {"access_token": access_token, "token_type": "bearer"}
+    except HTTPException as he:
+        raise he
     except Exception as e:
         logger.error(f"Login error: {str(e)}")
-        raise
+        raise HTTPException(status_code=500, detail="Internal server error")
 
+# Lyrics endpoints
 @app.get("/lyrics")
 async def get_user_lyrics(current_user: dict = Depends(get_current_user)):
     try:
@@ -242,7 +261,7 @@ async def get_user_lyrics(current_user: dict = Depends(get_current_user)):
         return lyrics
     except Exception as e:
         logger.error(f"Error fetching lyrics: {str(e)}")
-        raise
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/lyrics")
 async def create_lyrics(content: LyricsContent, current_user: dict = Depends(get_current_user)):
@@ -258,7 +277,7 @@ async def create_lyrics(content: LyricsContent, current_user: dict = Depends(get
         return {"id": str(result.inserted_id)}
     except Exception as e:
         logger.error(f"Error creating lyrics: {str(e)}")
-        raise
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.put("/lyrics/{lyrics_id}")
 async def update_lyrics(lyrics_id: str, content: LyricsContent, current_user: dict = Depends(get_current_user)):
@@ -279,7 +298,7 @@ async def update_lyrics(lyrics_id: str, content: LyricsContent, current_user: di
         return {"message": "Lyrics updated successfully"}
     except Exception as e:
         logger.error(f"Error updating lyrics: {str(e)}")
-        raise
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/share")
 async def share_lyrics(share: LyricsShare, current_user: dict = Depends(get_current_user)):
@@ -298,7 +317,7 @@ async def share_lyrics(share: LyricsShare, current_user: dict = Depends(get_curr
         return {"url": f"https://versz.fun/{share.extension}"}
     except Exception as e:
         logger.error(f"Error sharing lyrics: {str(e)}")
-        raise
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/share/{extension}")
 async def get_shared_lyrics(extension: str):
@@ -309,7 +328,7 @@ async def get_shared_lyrics(extension: str):
         return share["content"]
     except Exception as e:
         logger.error(f"Error fetching shared lyrics: {str(e)}")
-        raise
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
@@ -318,7 +337,7 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=port,
         log_level="info",
-        timeout_keep_alive=300,  # Increased keep-alive timeout to 5 minutes
-        loop="uvloop",  # Using uvloop for better performance
-        workers=1  # Single worker to maintain consistent keep-alive task
+        timeout_keep_alive=300,
+        loop="uvloop",
+        workers=1
     )
