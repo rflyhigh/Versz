@@ -8,7 +8,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 import asyncio
 import os
-from dotenv import load_load_dotenv
+from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
