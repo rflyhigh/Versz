@@ -1,0 +1,33 @@
+.hero {
+    text-align: center;
+    padding: 100px 20px;
+}
+
+.hero h1 {
+    font-size: 48px;
+    margin-bottom: 20px;
+}
+
+.hero p {
+    font-size: 20px;
+    opacity: 0.8;
+    margin-bottom: 40px;
+}
+
+.auth-forms {
+    display: flex;
+    gap: 40px;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.auth-form {
+    flex: 1;
+    padding: 40px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 16px;
+}
+
+.auth-form h2 {
+    margin-bottom: 24px;
+}
