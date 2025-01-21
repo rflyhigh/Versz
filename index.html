@@ -4,17 +4,731 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Versz - Share Your Lyrics</title>
-    <link rel="stylesheet" href="styles/main.css">
-    <link rel="stylesheet" href="styles/home.css">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/cabinet-grotesk/1.0.0/cabinet-grotesk.css" rel="stylesheet">
+    <style>
+        /* Base Styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        body {
+            font-family: 'Cabinet Grotesk', sans-serif;
+            background: #121212;
+            color: #fff;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* Auth Forms */
+        .auth-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 60px 20px;
+            gap: 40px;
+        }
+
+        .hero {
+            text-align: center;
+            max-width: 600px;
+        }
+
+        .hero h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            background: linear-gradient(45deg, #2196F3, #4ECDC4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero p {
+            font-size: 20px;
+            opacity: 0.8;
+            line-height: 1.6;
+        }
+
+        .auth-forms {
+            display: flex;
+            gap: 40px;
+            width: 100%;
+            max-width: 800px;
+        }
+
+        .auth-form {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 30px;
+            border-radius: 16px;
+            backdrop-filter: blur(10px);
+        }
+
+        .auth-form h2 {
+            margin-bottom: 24px;
+            font-size: 24px;
+        }
+
+        .input {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 16px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            color: white;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+
+        .input:focus {
+            border-color: #2196F3;
+            outline: none;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 12px;
+            background: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn:hover {
+            background: #1976D2;
+        }
+
+        /* Dashboard */
+        .dashboard {
+            padding: 40px 20px;
+        }
+
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 40px;
+        }
+
+        .dashboard-header h1 {
+            font-size: 32px;
+        }
+
+        .lyrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .lyrics-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .lyrics-card:hover {
+            transform: translateY(-5px);
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .lyrics-card h3 {
+            margin-bottom: 8px;
+            font-size: 20px;
+        }
+
+        .lyrics-card p {
+            opacity: 0.7;
+            font-size: 14px;
+        }
+
+        /* Editor */
+        .editor {
+            padding-top: 60px;
+        }
+
+        .toolbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            padding: 12px;
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .toolbar select, .toolbar button {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .toolbar select:hover, .toolbar button:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .editor-content {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .editor-header input {
+            width: 100%;
+            background: none;
+            border: none;
+            color: white;
+            outline: none;
+        }
+
+        .editor-header .title {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+
+        .editor-header .subtitle {
+            font-size: 18px;
+            opacity: 0.7;
+        }
+
+        .lyrics-editor {
+            margin-top: 40px;
+            min-height: 500px;
+            white-space: pre-wrap;
+            line-height: 1.6;
+            outline: none;
+        }
+
+        /* Share Modal */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+
+        .modal-content {
+            background: #1E1E1E;
+            padding: 30px;
+            border-radius: 16px;
+            width: 90%;
+            max-width: 500px;
+        }
+
+        .modal h2 {
+            margin-bottom: 20px;
+        }
+
+        .share-url {
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            margin-top: 20px;
+            word-break: break-all;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .auth-forms {
+                flex-direction: column;
+            }
+
+            .hero h1 {
+                font-size: 36px;
+            }
+
+            .toolbar {
+                flex-wrap: wrap;
+            }
+
+            .editor-header .title {
+                font-size: 24px;
+            }
+        }
+        /* Add to your existing CSS */
+.notification {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    padding: 12px 24px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    backdrop-filter: blur(10px);
+    z-index: 2000;
+    transition: all 0.3s ease;
+}
+
+.notification.success {
+    background: rgba(46, 213, 115, 0.8);
+}
+
+.notification.error {
+    background: rgba(255, 71, 87, 0.8);
+}
+
+.notification.fade-out {
+    opacity: 0;
+    transform: translateY(20px);
+}
+
+.selection-toolbar {
+    position: fixed;
+    display: flex;
+    gap: 8px;
+    padding: 8px;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(10px);
+    border-radius: 8px;
+    transform: translate(-50%, -100%);
+    z-index: 1000;
+}
+
+.selection-toolbar button {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.selection-toolbar button:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+    </style>
 </head>
 <body>
-    <div id="app">
-        <!-- Content will be dynamically loaded here -->
-    </div>
-    <script src="js/api.js"></script>
-    <script src="js/auth.js"></script>
-    <script src="js/router.js"></script>
-    <script src="js/app.js"></script>
-</body>
-</html>
+    <div id="app"></div>
+
+    <script>
+        const API_URL = 'https://tiffintreats.onrender.com';
+        let currentUser = null;
+        let currentLyrics = null;
+
+        // Router
+        const router = {
+            init() {
+                this.handleRoute();
+                window.addEventListener('popstate', () => this.handleRoute());
+            },
+
+            navigate(path) {
+                history.pushState(null, null, path);
+                this.handleRoute();
+            },
+
+            handleRoute() {
+                const path = window.location.pathname;
+                if (path === '/') {
+                    this.renderHome();
+                } else if (path === '/dashboard') {
+                    this.renderDashboard();
+                } else if (path === '/editor') {
+                    this.renderEditor();
+                } else if (path.startsWith('/share/')) {
+                    this.renderSharedLyrics(path.split('/')[2]);
+                }
+            },
+
+            async renderHome() {
+                if (localStorage.getItem('token')) {
+                    this.navigate('/dashboard');
+                    return;
+                }
+
+                document.getElementById('app').innerHTML = `
+                    <div class="auth-container">
+                        <div class="hero">
+                            <h1>Welcome to Versz</h1>
+                            <p>Create beautiful lyrics, style them your way, and share them with the world. Your words, your style, your stage.</p>
+                        </div>
+                        <div class="auth-forms">
+                            <div class="auth-form">
+                                <h2>Login</h2>
+                                <form id="loginForm">
+                                    <input type="text" class="input" placeholder="Username" required>
+                                    <input type="password" class="input" placeholder="Password" required>
+                                    <button type="submit" class="btn">Login</button>
+                                </form>
+                            </div>
+                            <div class="auth-form">
+                                <h2>Register</h2>
+                                <form id="registerForm">
+                                    <input type="text" class="input" placeholder="Username" required>
+                                    <input type="text" class="input" placeholder="Name" required>
+                                    <input type="password" class="input" placeholder="Password" required>
+                                    <button type="submit" class="btn">Register</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                this.setupAuthListeners();
+            },
+
+            async renderDashboard() {
+                if (!localStorage.getItem('token')) {
+                    this.navigate('/');
+                    return;
+                }
+
+                document.getElementById('app').innerHTML = `
+                    <div class="dashboard">
+                        <div class="dashboard-header">
+                            <h1>Your Lyrics</h1>
+                            <button class="btn" onclick="router.navigate('/editor')">Create New</button>
+                        </div>
+                        <div class="lyrics-grid" id="lyricsGrid">
+                            Loading...
+                        </div>
+                    </div>
+                `;
+
+                try {
+                    const lyrics = await api.getLyrics();
+                    const grid = document.getElementById('lyricsGrid');
+                    
+                    if (lyrics.length === 0) {
+                        grid.innerHTML = `
+                            <div style="grid-column: 1/-1; text-align: center; opacity: 0.7;">
+                                No lyrics yet. Create your first one!
+                            </div>
+                        `;
+                        return;
+                    }
+
+                    grid.innerHTML = lyrics.map(lyric => `
+                        <div class="lyrics-card" onclick="router.navigate('/editor/${lyric._id}')">
+                            <h3>${lyric.content.title || 'Untitled'}</h3>
+                            <p>${lyric.content.subtitle || 'No artist'}</p>
+                            <div style="margin-top: 12px; opacity: 0.5; font-size: 12px;">
+                                Last updated: ${new Date(lyric.updated_at).toLocaleDateString()}
+                            </div>
+                        </div>
+                    `).join('');
+                } catch (error) {
+                    console.error('Error fetching lyrics:', error);
+                }
+            },
+
+            async renderEditor(id = null) {
+                if (!localStorage.getItem('token')) {
+                    this.navigate('/');
+                    return;
+                }
+
+                document.getElementById('app').innerHTML = `
+                    <div class="editor">
+                        <div class="toolbar">
+                            <select id="fontSize">
+                                <option value="14">14px</option>
+                                <option value="16">16px</option>
+                                <option value="18" selected>18px</option>
+                                <option value="20">20px</option>
+                                <option value="24">24px</option>
+                            </select>
+                            <select id="textColor">
+                                <option value="inherit">Default</option>
+                                <option value="#FF6B6B">Red</option>
+                                <option value="#4ECDC4">Cyan</option>
+                                <option value="#FFE66D">Yellow</option>
+                                <option value="#95E1D3">Mint</option>
+                            </select>
+                            <select id="textFormat">
+                                <option value="none">Normal</option>
+                                <option value="uppercase">Uppercase</option>
+                                <option value="lowercase">Lowercase</option>
+                                <option value="capitalize">Capitalize</option>
+                            </select>
+                            <button onclick="editor.toggleTheme()">Toggle Theme</button>
+                            <button onclick="editor.share()">Share</button>
+                        </div>
+                        <div class="editor-content">
+                            <div class="editor-header">
+                                <input type="text" class="title" placeholder="Enter title" id="title">
+                                <input type="text" class="subtitle" placeholder="Enter artist name" id="subtitle">
+                            </div>
+                            <div class="lyrics-editor" contenteditable="true" id="lyrics" 
+                                 placeholder="Enter your lyrics here..."></div>
+                        </div>
+                    </div>
+                `;
+
+                this.setupEditorListeners();
+            },
+
+            async renderSharedLyrics(extension) {
+                try {
+                    const lyrics = await api.getSharedLyrics(extension);
+                    document.getElementById('app').innerHTML = `
+                        <div class="editor">
+                            <div class="editor-content">
+                                <div class="editor-header">
+                                    <h1 class="title">${lyrics.title || 'Untitled'}</h1>
+                                    <p class="subtitle">${lyrics.subtitle || 'No artist'}</p>
+                                </div>
+                                <div class="lyrics-editor" style="
+                                    font-size: ${lyrics.fontSize}px;
+                                    color: ${lyrics.textColor};
+                                    text-transform: ${lyrics.textFormat};
+                                ">${lyrics.lyrics}</div>
+                            </div>
+                        </div>
+                    `;
+                } catch (error) {
+                    console.error('Error fetching shared lyrics:', error);
+                }
+            },
+
+            setupAuthListeners() {
+                document.getElementById('loginForm').addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const [username, password] = e.target.elements;
+                    try {
+                        const data = await api.login(username.value, password.value);
+                        localStorage.setItem('token', data.access_token);
+                        this.navigate('/dashboard');
+                    } catch (error) {
+                        alert('Login failed. Please check your credentials.');
+                    }
+                });
+
+                document.getElementById('registerForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const [username, name, password] = e.target.elements;
+    
+    try {
+        await api.register(username.value, name.value, password.value);
+        const loginData = await api.login(username.value, password.value);
+        localStorage.setItem('token', loginData.access_token);
+        this.navigate('/dashboard');
+    } catch (error) {
+        showNotification('Registration failed. Please try a different username.', 'error');
+    }
+});
+},
+
+setupEditorListeners() {
+    const editor = {
+        fontSize: document.getElementById('fontSize'),
+        textColor: document.getElementById('textColor'),
+        textFormat: document.getElementById('textFormat'),
+        lyrics: document.getElementById('lyrics'),
+        title: document.getElementById('title'),
+        subtitle: document.getElementById('subtitle'),
+        
+        init() {
+            this.setupAutosave();
+            this.loadContent();
+            this.setupKeyboardShortcuts();
+            this.setupSelectionToolbar();
+        },
+        
+        setupAutosave() {
+            const elements = [this.lyrics, this.title, this.subtitle];
+            elements.forEach(el => {
+                el.addEventListener('input', () => this.saveContent());
+            });
+            
+            [this.fontSize, this.textColor, this.textFormat].forEach(el => {
+                el.addEventListener('change', () => this.saveContent());
+            });
+        },
+        
+        saveContent() {
+            const content = {
+                title: this.title.value,
+                subtitle: this.subtitle.value,
+                lyrics: this.lyrics.innerHTML,
+                fontSize: this.fontSize.value,
+                textColor: this.textColor.value,
+                textFormat: this.textFormat.value
+            };
+            
+            localStorage.setItem('draftLyrics', JSON.stringify(content));
+            showNotification('Draft saved', 'success');
+        },
+        
+        loadContent() {
+            const saved = JSON.parse(localStorage.getItem('draftLyrics'));
+            if (saved) {
+                this.title.value = saved.title || '';
+                this.subtitle.value = saved.subtitle || '';
+                this.lyrics.innerHTML = saved.lyrics || '';
+                this.fontSize.value = saved.fontSize || '18';
+                this.textColor.value = saved.textColor || 'inherit';
+                this.textFormat.value = saved.textFormat || 'none';
+                
+                this.updateStyles();
+            }
+        },
+        
+        updateStyles() {
+            this.lyrics.style.fontSize = `${this.fontSize.value}px`;
+            this.lyrics.style.color = this.textColor.value;
+            this.lyrics.style.textTransform = this.textFormat.value;
+        },
+        
+        setupKeyboardShortcuts() {
+            document.addEventListener('keydown', (e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                    e.preventDefault();
+                    this.saveContent();
+                }
+                if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+                    e.preventDefault();
+                    document.execCommand('bold', false);
+                }
+                if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
+                    e.preventDefault();
+                    document.execCommand('italic', false);
+                }
+            });
+        },
+        
+        setupSelectionToolbar() {
+            let toolbar = null;
+            
+            document.addEventListener('selectionchange', () => {
+                const selection = window.getSelection();
+                
+                if (toolbar) {
+                    toolbar.remove();
+                    toolbar = null;
+                }
+                
+                if (!selection.toString()) return;
+                
+                const range = selection.getRangeAt(0);
+                const rect = range.getBoundingClientRect();
+                
+                toolbar = createSelectionToolbar(rect, selection);
+                document.body.appendChild(toolbar);
+            });
+        },
+        
+        async share() {
+            const content = {
+                title: this.title.value,
+                subtitle: this.subtitle.value,
+                lyrics: this.lyrics.innerHTML,
+                fontSize: this.fontSize.value,
+                textColor: this.textColor.value,
+                textFormat: this.textFormat.value
+            };
+            
+            try {
+                const data = await api.shareLyrics(generateExtension(), content);
+                showShareModal(data.shareUrl);
+            } catch (error) {
+                showNotification('Failed to share lyrics', 'error');
+            }
+        }
+    };
+    
+    editor.init();
+}
+};
+
+// Helper functions
+function createSelectionToolbar(rect, selection) {
+    const toolbar = document.createElement('div');
+    toolbar.className = 'selection-toolbar';
+    toolbar.style.left = `${rect.left + rect.width/2}px`;
+    toolbar.style.top = `${rect.top - 10}px`;
+    
+    const buttons = [
+        { text: 'Bold', command: 'bold' },
+        { text: 'Italic', command: 'italic' },
+        { text: 'Copy', command: 'copy' }
+    ];
+    
+    buttons.forEach(({ text, command }) => {
+        const button = document.createElement('button');
+        button.textContent = text;
+        button.onclick = () => {
+            if (command === 'copy') {
+                navigator.clipboard.writeText(selection.toString());
+            } else {
+                document.execCommand(command, false);
+            }
+            toolbar.remove();
+        };
+        toolbar.appendChild(button);
+    });
+    
+    return toolbar;
+}
+
+function showNotification(message, type = 'info') {
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.textContent = message;
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.classList.add('fade-out');
+        setTimeout(() => notification.remove(), 300);
+    }, 3000);
+}
+
+function showShareModal(shareUrl) {
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <h2>Share Your Lyrics</h2>
+            <p>Share this link with others:</p>
+            <div class="share-url">${shareUrl}</div>
+            <button class="btn" onclick="navigator.clipboard.writeText('${shareUrl}')">
+                Copy Link
+            </button>
+            <button class="btn" onclick="this.closest('.modal').remove()">
+                Close
+            </button>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+}
+
+function generateExtension() {
+    return Math.random().toString(36).substring(2, 8);
+}
+
+// Initialize the router when the DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+    router.init();
+});
+
+</script>
