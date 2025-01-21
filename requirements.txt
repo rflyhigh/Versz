@@ -1,8 +1,6 @@
-flask==2.0.1
-werkzeug==2.0.1
-flask-cors==4.0.0
-PyPDF2==3.0.1
-APScheduler==3.10.1
-requests==2.31.0
-PyMuPDF
-nltk
+fastapi
+uvicorn
+motor
+python-jose[cryptography]
+passlib[bcrypt]
+python-dotenv
