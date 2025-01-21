@@ -26,6 +26,21 @@ client = None
 db = None
 keep_alive_task = None
 
+async def reconnect_db():
+    """Helper function to handle database reconnection"""
+    global client, db
+    if client:
+        client.close()
+    mongodb_url = os.getenv("MONGODB_URL")
+    client = AsyncIOMotorClient(mongodb_url, 
+                              serverSelectionTimeoutMS=5000,
+                              connectTimeoutMS=5000,
+                              socketTimeoutMS=5000,
+                              maxIdleTimeMS=60000)
+    db = client.versz
+    await client.admin.command('ping')
+    logger.info("Successfully connected to MongoDB")
+
 # Keep-alive mechanism
 async def keep_alive():
     while True:
@@ -44,15 +59,7 @@ async def keep_alive():
         except Exception as e:
             logger.error(f"Keep-alive error: {str(e)}")
             try:
-                # Attempt to reconnect to MongoDB
-                global client, db
-                if client:
-                    client.close()
-                mongodb_url = os.getenv("MONGODB_URL")
-                client = AsyncIOMotorClient(mongodb_url, serverSelectionTimeoutMS=5000)
-                db = client.versz
-                await client.admin.command('ping')
-                logger.info("Successfully reconnected to MongoDB")
+                await reconnect_db()
             except Exception as reconnect_error:
                 logger.error(f"Reconnection failed: {str(reconnect_error)}")
             finally:
@@ -65,20 +72,7 @@ async def lifespan(app: FastAPI):
     try:
         # Startup
         logger.info("Starting up application...")
-        mongodb_url = os.getenv("MONGODB_URL")
-        if not mongodb_url:
-            raise ValueError("MONGODB_URL environment variable not set")
-        
-        client = AsyncIOMotorClient(mongodb_url, 
-                                  serverSelectionTimeoutMS=5000,
-                                  connectTimeoutMS=5000,
-                                  socketTimeoutMS=5000,
-                                  maxIdleTimeMS=60000)
-        db = client.versz
-        
-        # Verify database connection
-        await client.admin.command('ping')
-        logger.info("Successfully connected to MongoDB")
+        await reconnect_db()
         
         # Create keep-alive task
         keep_alive_task = asyncio.create_task(keep_alive())
