@@ -6,7 +6,6 @@
     <title>Versz - Share Your Lyrics</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/cabinet-grotesk/1.0.0/cabinet-grotesk.css" rel="stylesheet">
     <style>
-        /* Base Styles */
         * {
             margin: 0;
             padding: 0;
@@ -27,7 +26,6 @@
             padding: 20px;
         }
 
-        /* Auth Forms */
         .auth-container {
             display: flex;
             flex-direction: column;
@@ -108,7 +106,6 @@
             background: #1976D2;
         }
 
-        /* Dashboard */
         .dashboard {
             padding: 40px 20px;
         }
@@ -153,7 +150,6 @@
             font-size: 14px;
         }
 
-        /* Editor */
         .editor {
             padding-top: 60px;
         }
@@ -172,7 +168,8 @@
             z-index: 1000;
         }
 
-        .toolbar select, .toolbar button {
+        .toolbar select,
+        .toolbar button {
             background: rgba(255, 255, 255, 0.1);
             border: 1px solid rgba(255, 255, 255, 0.2);
             color: white;
@@ -183,7 +180,8 @@
             transition: all 0.2s;
         }
 
-        .toolbar select:hover, .toolbar button:hover {
+        .toolbar select:hover,
+        .toolbar button:hover {
             background: rgba(255, 255, 255, 0.2);
         }
 
@@ -216,9 +214,37 @@
             white-space: pre-wrap;
             line-height: 1.6;
             outline: none;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
         }
 
-        /* Share Modal */
+        .notification {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 24px;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            backdrop-filter: blur(10px);
+            z-index: 2000;
+            transition: all 0.3s ease;
+        }
+
+        .notification.success {
+            background: rgba(46, 213, 115, 0.8);
+        }
+
+        .notification.error {
+            background: rgba(255, 71, 87, 0.8);
+        }
+
+        .notification.fade-out {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+
         .modal {
             position: fixed;
             top: 0;
@@ -248,11 +274,10 @@
             padding: 12px;
             background: rgba(255, 255, 255, 0.1);
             border-radius: 8px;
-            margin-top: 20px;
+            margin: 20px 0;
             word-break: break-all;
         }
 
-        /* Responsive Design */
         @media (max-width: 768px) {
             .auth-forms {
                 flex-direction: column;
@@ -270,68 +295,91 @@
                 font-size: 24px;
             }
         }
-        /* Add to your existing CSS */
-.notification {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    padding: 12px 24px;
-    border-radius: 8px;
-    background: rgba(0, 0, 0, 0.8);
-    color: white;
-    backdrop-filter: blur(10px);
-    z-index: 2000;
-    transition: all 0.3s ease;
-}
-
-.notification.success {
-    background: rgba(46, 213, 115, 0.8);
-}
-
-.notification.error {
-    background: rgba(255, 71, 87, 0.8);
-}
-
-.notification.fade-out {
-    opacity: 0;
-    transform: translateY(20px);
-}
-
-.selection-toolbar {
-    position: fixed;
-    display: flex;
-    gap: 8px;
-    padding: 8px;
-    background: rgba(0, 0, 0, 0.8);
-    backdrop-filter: blur(10px);
-    border-radius: 8px;
-    transform: translate(-50%, -100%);
-    z-index: 1000;
-}
-
-.selection-toolbar button {
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: white;
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 12px;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.selection-toolbar button:hover {
-    background: rgba(255, 255, 255, 0.2);
-}
     </style>
 </head>
 <body>
     <div id="app"></div>
 
     <script>
-        const API_URL = 'https://tiffintreats.onrender.com';
-        let currentUser = null;
-        let currentLyrics = null;
+        // API Service
+        const api = {
+            async request(endpoint, options = {}) {
+                const baseURL = 'https://tiffintreats.onrender.com';
+                const token = localStorage.getItem('token');
+                
+                const defaultHeaders = {
+                    'Content-Type': 'application/json',
+                    ...(token && { 'Authorization': `Bearer ${token}` })
+                };
+
+                try {
+                    const response = await fetch(`${baseURL}${endpoint}`, {
+                        ...options,
+                        headers: {
+                            ...defaultHeaders,
+                            ...options.headers
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    return await response.json();
+                } catch (error) {
+                    console.error('API Error:', error);
+                    throw error;
+                }
+            },
+
+            async login(username, password) {
+                const formData = new FormData();
+                formData.append('username', username);
+                formData.append('password', password);
+
+                return this.request('/token', {
+                    method: 'POST',
+                    body: formData,
+                    headers: {} // Let browser set content-type for FormData
+                });
+            },
+
+            async register(username, name, password) {
+                return this.request('/register', {
+                    method: 'POST',
+                    body: JSON.stringify({ username, name, password })
+                });
+            },
+
+            async getLyrics() {
+                return this.request('/lyrics');
+            },
+
+            async createLyrics(content) {
+                return this.request('/lyrics', {
+                    method: 'POST',
+                    body: JSON.stringify(content)
+                });
+            },
+
+            async updateLyrics(id, content) {
+                return this.request(`/lyrics/${id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify(content)
+                });
+            },
+
+            async shareLyrics(extension, content) {
+                return this.request('/share', {
+                    method: 'POST',
+                    body: JSON.stringify({ extension, content })
+                });
+            },
+
+            async getSharedLyrics(extension) {
+                return this.request(`/share/${extension}`);
+            }
+        };
 
         // Router
         const router = {
@@ -347,12 +395,19 @@
 
             handleRoute() {
                 const path = window.location.pathname;
+
+                if (!localStorage.getItem('token') && path !== '/') {
+                    this.navigate('/');
+                    return;
+                }
+
                 if (path === '/') {
                     this.renderHome();
                 } else if (path === '/dashboard') {
                     this.renderDashboard();
-                } else if (path === '/editor') {
-                    this.renderEditor();
+                } else if (path.startsWith('/editor')) {
+                    const id = path.split('/')[2];
+                    this.renderEditor(id);
                 } else if (path.startsWith('/share/')) {
                     this.renderSharedLyrics(path.split('/')[2]);
                 }
@@ -368,7 +423,7 @@
                     <div class="auth-container">
                         <div class="hero">
                             <h1>Welcome to Versz</h1>
-                            <p>Create beautiful lyrics, style them your way, and share them with the world. Your words, your style, your stage.</p>
+                            <p>Create beautiful lyrics, style them your way, and share them with the world.</p>
                         </div>
                         <div class="auth-forms">
                             <div class="auth-form">
@@ -396,20 +451,16 @@
             },
 
             async renderDashboard() {
-                if (!localStorage.getItem('token')) {
-                    this.navigate('/');
-                    return;
-                }
-
                 document.getElementById('app').innerHTML = `
                     <div class="dashboard">
                         <div class="dashboard-header">
                             <h1>Your Lyrics</h1>
-                            <button class="btn" onclick="router.navigate('/editor')">Create New</button>
+                            <div>
+                                <button class="btn" onclick="router.navigate('/editor')">Create New</button>
+                                <button class="btn" onclick="logout()">Logout</button>
+                            </div>
                         </div>
-                        <div class="lyrics-grid" id="lyricsGrid">
-                            Loading...
-                        </div>
+                        <div class="lyrics-grid" id="lyricsGrid">Loading...</div>
                     </div>
                 `;
 
@@ -417,38 +468,32 @@
                     const lyrics = await api.getLyrics();
                     const grid = document.getElementById('lyricsGrid');
                     
-                    if (lyrics.length === 0) {
-                        grid.innerHTML = `
-                            <div style="grid-column: 1/-1; text-align: center; opacity: 0.7;">
-                                No lyrics yet. Create your first one!
-                            </div>
-                        `;
+                    if (!lyrics || lyrics.length === 0) {
+                        grid.innerHTML = '<p style="text-align: center; opacity: 0.7;">No lyrics yet. Create your first one!</p>';
                         return;
                     }
 
-                    grid.innerHTML = lyrics.map(lyric => `
-                        <div class="lyrics-card" onclick="router.navigate('/editor/${lyric._id}')">
-                            <h3>${lyric.content.title || 'Untitled'}</h3>
-                            <p>${lyric.content.subtitle || 'No artist'}</p>
-                            <div style="margin-top: 12px; opacity: 0.5; font-size: 12px;">
-                                Last updated: ${new Date(lyric.updated_at).toLocaleDateString()}
+                    grid.innerHTML = lyrics
+                        .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+                        .map(lyric => `
+                            <div class="lyrics-card" onclick="router.navigate('/editor/${lyric._id}')">
+                                <h3>${lyric.content?.title || 'Untitled'}</h3>
+                                <p>${lyric.content?.subtitle || 'No artist'}</p>
+                                <div style="margin-top: 12px; opacity: 0.5; font-size: 12px;">
+                                    Last updated: ${new Date(lyric.updated_at).toLocaleDateString()}
+                                </div>
                             </div>
-                        </div>
-                    `).join('');
+                        `).join('');
                 } catch (error) {
-                    console.error('Error fetching lyrics:', error);
+                    showNotification('Failed to load lyrics', 'error');
                 }
             },
 
             async renderEditor(id = null) {
-                if (!localStorage.getItem('token')) {
-                    this.navigate('/');
-                    return;
-                }
-
                 document.getElementById('app').innerHTML = `
                     <div class="editor">
                         <div class="toolbar">
+                            <button onclick="router.navigate('/dashboard')">← Back</button>
                             <select id="fontSize">
                                 <option value="14">14px</option>
                                 <option value="16">16px</option>
@@ -469,21 +514,110 @@
                                 <option value="lowercase">Lowercase</option>
                                 <option value="capitalize">Capitalize</option>
                             </select>
-                            <button onclick="editor.toggleTheme()">Toggle Theme</button>
-                            <button onclick="editor.share()">Share</button>
+                            <button onclick="saveLyrics()">Save</button>
+                            <button onclick="shareLyrics()">Share</button>
                         </div>
                         <div class="editor-content">
                             <div class="editor-header">
-                                <input type="text" class="title" placeholder="Enter title" id="title">
-                                <input type="text" class="subtitle" placeholder="Enter artist name" id="subtitle">
+                                <input type="text" class="title" id="title" placeholder="Enter title">
+                                <input type="text" class="subtitle" id="subtitle" placeholder="Enter artist name">
                             </div>
-                            <div class="lyrics-editor" contenteditable="true" id="lyrics" 
+                            <div class="lyrics-editor" id="lyrics" contenteditable="true" 
                                  placeholder="Enter your lyrics here..."></div>
                         </div>
                     </div>
                 `;
 
-                this.setupEditorListeners();
+                this.setupEditor(id);
+            },
+
+            async setupEditor(id) {
+                const editor = {
+                    title: document.getElementById('title'),
+                    subtitle: document.getElementById('subtitle'),
+                    lyrics: document.getElementById('lyrics'),
+                    fontSize: document.getElementById('fontSize'),
+                    textColor: document.getElementById('textColor'),
+                    textFormat: document.getElementById('textFormat'),
+                    currentId: id,
+
+                    init() {
+                        this.setupAutosave();
+                        this.applyStyles();
+                        if (id) {
+                            this.loadLyrics();
+                        }
+                    },
+
+                    setupAutosave() {
+                        let timeout;
+                        const elements = [this.title, this.subtitle, this.lyrics];
+                        elements.forEach(el => {
+                            el.addEventListener('input', () => {
+                                clearTimeout(timeout);
+                                timeout = setTimeout(() => this.save(), 1000);
+                            });
+                        });
+
+                        [this.fontSize, this.textColor, this.textFormat].forEach(el => {
+                            el.addEventListener('change', () => {
+                                this.applyStyles();
+                                this.save();
+                            });
+                        });
+                    },
+
+                    applyStyles() {
+                        this.lyrics.style.fontSize = `${this.fontSize.value}px`;
+                        this.lyrics.style.color = this.textColor.value;
+                        this.lyrics.style.textTransform = this.textFormat.value === 'none' ? 'none' : this.textFormat.value;
+                    },
+
+                    async loadLyrics() {
+                        try {
+                            const lyrics = await api.getLyrics();
+                            const current = lyrics.find(l => l._id === this.currentId);
+                            if (current) {
+                                this.title.value = current.content.title || '';
+                                this.subtitle.value = current.content.subtitle || '';
+                                this.lyrics.innerHTML = current.content.lyrics || '';
+                                this.fontSize.value = current.content.fontSize || '18';
+                                this.textColor.value = current.content.textColor || 'inherit';
+                                this.textFormat.value = current.content.textFormat || 'none';
+                                this.applyStyles();
+                            }
+                        } catch (error) {
+                            showNotification('Failed to load lyrics', 'error');
+                        }
+                    },
+
+                    async save() {
+                        const content = {
+                            title: this.title.value,
+                            subtitle: this.subtitle.value,
+                            lyrics: this.lyrics.innerHTML,
+                            fontSize: this.fontSize.value,
+                            textColor: this.textColor.value,
+                            textFormat: this.textFormat.value
+                        };
+
+                        try {
+                            if (this.currentId) {
+                                await api.updateLyrics(this.currentId, content);
+                            } else {
+                                const result = await api.createLyrics(content);
+                                this.currentId = result.id;
+                                history.replaceState(null, null, `/editor/${result.id}`);
+                            }
+                            showNotification('Saved successfully', 'success');
+                        } catch (error) {
+                            showNotification('Failed to save', 'error');
+                        }
+                    }
+                };
+
+                window.editor = editor;
+                editor.init();
             },
 
             async renderSharedLyrics(extension) {
@@ -491,6 +625,9 @@
                     const lyrics = await api.getSharedLyrics(extension);
                     document.getElementById('app').innerHTML = `
                         <div class="editor">
+                            <div class="toolbar">
+                                <button onclick="window.location.href='/'">Home</button>
+                            </div>
                             <div class="editor-content">
                                 <div class="editor-header">
                                     <h1 class="title">${lyrics.title || 'Untitled'}</h1>
@@ -505,7 +642,7 @@
                         </div>
                     `;
                 } catch (error) {
-                    console.error('Error fetching shared lyrics:', error);
+                    showNotification('Failed to load shared lyrics', 'error');
                 }
             },
 
@@ -518,217 +655,84 @@
                         localStorage.setItem('token', data.access_token);
                         this.navigate('/dashboard');
                     } catch (error) {
-                        alert('Login failed. Please check your credentials.');
+                        showNotification('Login failed', 'error');
                     }
                 });
 
                 document.getElementById('registerForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const [username, name, password] = e.target.elements;
-    
-    try {
-        await api.register(username.value, name.value, password.value);
-        const loginData = await api.login(username.value, password.value);
-        localStorage.setItem('token', loginData.access_token);
-        this.navigate('/dashboard');
-    } catch (error) {
-        showNotification('Registration failed. Please try a different username.', 'error');
-    }
-});
-},
-
-setupEditorListeners() {
-    const editor = {
-        fontSize: document.getElementById('fontSize'),
-        textColor: document.getElementById('textColor'),
-        textFormat: document.getElementById('textFormat'),
-        lyrics: document.getElementById('lyrics'),
-        title: document.getElementById('title'),
-        subtitle: document.getElementById('subtitle'),
-        
-        init() {
-            this.setupAutosave();
-            this.loadContent();
-            this.setupKeyboardShortcuts();
-            this.setupSelectionToolbar();
-        },
-        
-        setupAutosave() {
-            const elements = [this.lyrics, this.title, this.subtitle];
-            elements.forEach(el => {
-                el.addEventListener('input', () => this.saveContent());
-            });
-            
-            [this.fontSize, this.textColor, this.textFormat].forEach(el => {
-                el.addEventListener('change', () => this.saveContent());
-            });
-        },
-        
-        saveContent() {
-            const content = {
-                title: this.title.value,
-                subtitle: this.subtitle.value,
-                lyrics: this.lyrics.innerHTML,
-                fontSize: this.fontSize.value,
-                textColor: this.textColor.value,
-                textFormat: this.textFormat.value
-            };
-            
-            localStorage.setItem('draftLyrics', JSON.stringify(content));
-            showNotification('Draft saved', 'success');
-        },
-        
-        loadContent() {
-            const saved = JSON.parse(localStorage.getItem('draftLyrics'));
-            if (saved) {
-                this.title.value = saved.title || '';
-                this.subtitle.value = saved.subtitle || '';
-                this.lyrics.innerHTML = saved.lyrics || '';
-                this.fontSize.value = saved.fontSize || '18';
-                this.textColor.value = saved.textColor || 'inherit';
-                this.textFormat.value = saved.textFormat || 'none';
-                
-                this.updateStyles();
+                    e.preventDefault();
+                    const [username, name, password] = e.target.elements;
+                    try {
+                        await api.register(username.value, name.value, password.value);
+                        const loginData = await api.login(username.value, password.value);
+                        localStorage.setItem('token', loginData.access_token);
+                        this.navigate('/dashboard');
+                    } catch (error) {
+                        showNotification('Registration failed', 'error');
+                    }
+                });
             }
-        },
-        
-        updateStyles() {
-            this.lyrics.style.fontSize = `${this.fontSize.value}px`;
-            this.lyrics.style.color = this.textColor.value;
-            this.lyrics.style.textTransform = this.textFormat.value;
-        },
-        
-        setupKeyboardShortcuts() {
-            document.addEventListener('keydown', (e) => {
-                if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-                    e.preventDefault();
-                    this.saveContent();
-                }
-                if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
-                    e.preventDefault();
-                    document.execCommand('bold', false);
-                }
-                if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
-                    e.preventDefault();
-                    document.execCommand('italic', false);
-                }
-            });
-        },
-        
-        setupSelectionToolbar() {
-            let toolbar = null;
-            
-            document.addEventListener('selectionchange', () => {
-                const selection = window.getSelection();
-                
-                if (toolbar) {
-                    toolbar.remove();
-                    toolbar = null;
-                }
-                
-                if (!selection.toString()) return;
-                
-                const range = selection.getRangeAt(0);
-                const rect = range.getBoundingClientRect();
-                
-                toolbar = createSelectionToolbar(rect, selection);
-                document.body.appendChild(toolbar);
-            });
-        },
-        
-        async share() {
-            const content = {
-                title: this.title.value,
-                subtitle: this.subtitle.value,
-                lyrics: this.lyrics.innerHTML,
-                fontSize: this.fontSize.value,
-                textColor: this.textColor.value,
-                textFormat: this.textFormat.value
-            };
-            
+        };
+
+        // Utility functions
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            setTimeout(() => {
+                notification.classList.add('fade-out');
+                setTimeout(() => notification.remove(), 300);
+            }, 3000);
+        }
+
+        async function saveLyrics() {
+            await window.editor.save();
+        }
+
+        async function shareLyrics() {
             try {
-                const data = await api.shareLyrics(generateExtension(), content);
-                showShareModal(data.shareUrl);
+                const extension = Math.random().toString(36).substring(2, 8);
+                const content = {
+                    title: editor.title.value,
+                    subtitle: editor.subtitle.value,
+                    lyrics: editor.lyrics.innerHTML,
+                    fontSize: editor.fontSize.value,
+                    textColor: editor.textColor.value,
+                    textFormat: editor.textFormat.value
+                };
+
+                const result = await api.shareLyrics(extension, content);
+                const modal = document.createElement('div');
+                modal.className = 'modal';
+                modal.innerHTML = `
+                    <div class="modal-content">
+                        <h2>Share Your Lyrics</h2>
+                        <p>Share this link with others:</p>
+                        <div class="share-url">${result.url}</div>
+                        <button class="btn" onclick="navigator.clipboard.writeText('${result.url}')">
+                            Copy Link
+                        </button>
+                        <button class="btn" onclick="this.closest('.modal').remove()">
+                            Close
+                        </button>
+                    </div>
+                `;
+                document.body.appendChild(modal);
             } catch (error) {
                 showNotification('Failed to share lyrics', 'error');
             }
         }
-    };
-    
-    editor.init();
-}
-};
 
-// Helper functions
-function createSelectionToolbar(rect, selection) {
-    const toolbar = document.createElement('div');
-    toolbar.className = 'selection-toolbar';
-    toolbar.style.left = `${rect.left + rect.width/2}px`;
-    toolbar.style.top = `${rect.top - 10}px`;
-    
-    const buttons = [
-        { text: 'Bold', command: 'bold' },
-        { text: 'Italic', command: 'italic' },
-        { text: 'Copy', command: 'copy' }
-    ];
-    
-    buttons.forEach(({ text, command }) => {
-        const button = document.createElement('button');
-        button.textContent = text;
-        button.onclick = () => {
-            if (command === 'copy') {
-                navigator.clipboard.writeText(selection.toString());
-            } else {
-                document.execCommand(command, false);
-            }
-            toolbar.remove();
-        };
-        toolbar.appendChild(button);
-    });
-    
-    return toolbar;
-}
+        function logout() {
+            localStorage.removeItem('token');
+            router.navigate('/');
+        }
 
-function showNotification(message, type = 'info') {
-    const notification = document.createElement('div');
-    notification.className = `notification ${type}`;
-    notification.textContent = message;
-    
-    document.body.appendChild(notification);
-    
-    setTimeout(() => {
-        notification.classList.add('fade-out');
-        setTimeout(() => notification.remove(), 300);
-    }, 3000);
-}
-
-function showShareModal(shareUrl) {
-    const modal = document.createElement('div');
-    modal.className = 'modal';
-    modal.innerHTML = `
-        <div class="modal-content">
-            <h2>Share Your Lyrics</h2>
-            <p>Share this link with others:</p>
-            <div class="share-url">${shareUrl}</div>
-            <button class="btn" onclick="navigator.clipboard.writeText('${shareUrl}')">
-                Copy Link
-            </button>
-            <button class="btn" onclick="this.closest('.modal').remove()">
-                Close
-            </button>
-        </div>
-    `;
-    
-    document.body.appendChild(modal);
-}
-
-function generateExtension() {
-    return Math.random().toString(36).substring(2, 8);
-}
-
-// Initialize the router when the DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-    router.init();
-});
-
-</script>
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', () => {
+            router.init();
+        });
+    </script>
+</body>
+</html>
