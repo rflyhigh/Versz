@@ -230,11 +230,11 @@ async def register(user: User):
         logger.error(f"Registration error: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.post("/token", response_model=Token)
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+@app.post("/token")
+async def login_for_access_token(username: str = Form(...), password: str = Form(...)):
     try:
-        user = await db.users.find_one({"username": form_data.username})
-        if not user or not verify_password(form_data.password, user["password"]):
+        user = await db.users.find_one({"username": username})
+        if not user or not verify_password(password, user["password"]):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect username or password",
@@ -245,7 +245,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
         access_token = create_access_token(
             data={"sub": user["username"]}, expires_delta=access_token_expires
         )
-        logger.info(f"User logged in successfully: {form_data.username}")
+        logger.info(f"User logged in successfully: {username}")
         return {"access_token": access_token, "token_type": "bearer"}
     except HTTPException as he:
         raise he
