@@ -1,433 +1,182 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-from werkzeug.utils import secure_filename
-from apscheduler.schedulers.background import BackgroundScheduler
+from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from motor.motor_asyncio import AsyncIOMotorClient
+from datetime import datetime, timedelta
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+import asyncio
 import os
-import PyPDF2
-import re
-import requests
-import logging
-from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Optional
-import fitz  # PyMuPDF
-import nltk
-from nltk.tokenize import sent_tokenize
-import json
-from dataclasses import dataclass, asdict
-from collections import defaultdict
+from dotenv import load_load_dotenv
 
-# Download required NLTK data
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt')
+# Load environment variables
+load_dotenv()
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+# Initialize FastAPI app
+app = FastAPI()
+
+# CORS middleware configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://versz.fun", "https://www.versz.fun"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-logger = logging.getLogger(__name__)
 
-@dataclass
-class Heading:
-    text: str
-    level: int
-    page_number: int
-    position: int
+# Security configuration
+SECRET_KEY = os.getenv("SECRET_KEY")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
+# Database connection
+MONGODB_URL = os.getenv("MONGODB_URL")
+client = AsyncIOMotorClient(MONGODB_URL)
+db = client.versz
 
-@dataclass
-class TableCell:
-    text: str
-    row: int
-    col: int
-    rowspan: int = 1
-    colspan: int = 1
+# Password hashing
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-@dataclass
-class Table:
-    cells: List[TableCell]
-    bbox: tuple[float, float, float, float]
-    page_number: int
-    row_count: int
-    col_count: int
+# Models
+class User(BaseModel):
+    username: str
+    name: str
+    password: str
 
-@dataclass
-class Page:
-    number: int
-    content: str
-    headings: List[Dict]
-    paragraphs: List[str]
-    tables: List[Dict]
-    images: List[Dict]
-
-@dataclass
-class Chapter:
+class LyricsContent(BaseModel):
     title: str
-    page_start: int
-    page_end: Optional[int]
-    content: List[str]
-    subsections: List[Dict]
+    subtitle: str
+    lyrics: str
+    fontSize: str
+    textColor: str
+    textFormat: str
+    theme: str
 
-class PDFProcessor:
-    def __init__(self):
-        self.heading_patterns = {
-            'chapter': re.compile(r'^(?:Chapter|CHAPTER)\s+\d+|^\d+\.\s+'),
-            'section': re.compile(r'^\d+\.\d+\s+[A-Z]'),
-            'subsection': re.compile(r'^\d+\.\d+\.\d+\s+[A-Z]'),
-            'heading': re.compile(r'^[A-Z][^a-z]{2,}')
-        }
-        self.ignore_patterns = [
-            re.compile(r'^Page \d+$'),
-            re.compile(r'^\d+$'),
-            re.compile(r'^Copyright'),
-            re.compile(r'^All rights reserved'),
-        ]
-        self.table_markers = [
-            re.compile(r'^Table\s+\d+'),
-            re.compile(r'^\s*\|.*\|.*\|\s*$'),  # Markdown-style tables
-            re.compile(r'^\s*[-+]+[-+|]+[-+]+\s*$')  # Table separators
-        ]
+class LyricsShare(BaseModel):
+    extension: str
+    content: LyricsContent
 
+# Authentication functions
+async def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
 
-    def is_heading(self, text: str) -> tuple[bool, int]:
-        if self.heading_patterns['chapter'].match(text):
-            return True, 1
-        elif self.heading_patterns['section'].match(text):
-            return True, 2
-        elif self.heading_patterns['subsection'].match(text):
-            return True, 3
-        elif self.heading_patterns['heading'].match(text):
-            return True, 4
-        return False, 0
+async def get_password_hash(password):
+    return pwd_context.hash(password)
 
-    def should_ignore(self, text: str) -> bool:
-        return any(pattern.match(text) for pattern in self.ignore_patterns)
+async def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-    def extract_tables(self, page: fitz.Page) -> List[Dict]:
-        tables = []
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    
+    user = await db.users.find_one({"username": username})
+    if user is None:
+        raise credentials_exception
+    return user
+
+# Self-ping mechanism
+async def keep_alive():
+    while True:
         try:
-            # Get page dimensions for relative positioning
-            page_rect = page.rect
-            
-            # Get blocks that might contain tables
-            blocks = page.get_text("dict", flags=fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_PRESERVE_WHITESPACE)
-            
-            current_table = None
-            current_cells = []
-            
-            for block in blocks.get("blocks", []):
-                if block.get("type") == 0:  # Text block
-                    lines = block.get("lines", [])
-                    
-                    # Check if this block looks like a table
-                    is_table_content = False
-                    for line in lines:
-                        spans = line.get("spans", [])
-                        if spans:
-                            text = "".join(span.get("text", "") for span in spans)
-                            if any(pattern.match(text) for pattern in self.table_markers):
-                                is_table_content = True
-                                break
-                    
-                    if is_table_content:
-                        # Process as table content
-                        if not current_table:
-                            current_table = {
-                                "bbox": block["bbox"],
-                                "rows": [],
-                                "col_count": 0
-                            }
-                        
-                        # Extract cells from lines
-                        for line in lines:
-                            row = []
-                            for span in line.get("spans", []):
-                                text = span.get("text", "").strip()
-                                if text:
-                                    cell = {
-                                        "text": text,
-                                        "bbox": span["bbox"],
-                                        "font": span.get("font", ""),
-                                        "size": span.get("size", 0)
-                                    }
-                                    row.append(cell)
-                            
-                            if row:
-                                current_table["rows"].append(row)
-                                current_table["col_count"] = max(
-                                    current_table["col_count"],
-                                    len(row)
-                                )
-                    
-                    elif current_table:
-                        # End of table detected
-                        if current_table["rows"]:
-                            tables.append(self._normalize_table(current_table))
-                        current_table = None
-            
-            # Add any remaining table
-            if current_table and current_table["rows"]:
-                tables.append(self._normalize_table(current_table))
-            
-            return tables
-        
-        except Exception as e:
-            logger.warning(f"Table extraction error: {str(e)}")
-            return []
+            requests.get('https://tiffintreats.onrender.com/ping')
+            time.sleep(600)  # 10 minutes
+        except:
+            continue
 
-    def _normalize_table(self, table_data: Dict) -> Dict:
-        """Normalizes table data to ensure consistent structure."""
-        normalized = {
-            "bbox": table_data["bbox"],
-            "cells": [],
-            "row_count": len(table_data["rows"]),
-            "col_count": table_data["col_count"]
-        }
-        
-        # Normalize cells into a regular grid
-        for row_idx, row in enumerate(table_data["rows"]):
-            for col_idx, cell in enumerate(row):
-                normalized["cells"].append({
-                    "text": cell["text"],
-                    "row": row_idx,
-                    "col": col_idx,
-                    "bbox": cell["bbox"],
-                    "font": cell.get("font", ""),
-                    "size": cell.get("size", 0)
-                })
-        
-        return normalized
-    def extract_images(self, page: fitz.Page) -> List[Dict]:
-        images = []
-        try:
-            image_list = page.get_images(full=True)
-            for img_index, img in enumerate(image_list):
-                xref = img[0]
-                base_image = page.parent.extract_image(xref)
-                if base_image:
-                    images.append({
-                        'index': img_index,
-                        'bbox': img[1],
-                        'size': (base_image["width"], base_image["height"]),
-                        'type': base_image["ext"]
-                    })
-        except Exception as e:
-            logger.warning(f"Image extraction error: {str(e)}")
-        return images
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(keep_alive())
 
-    def process_pdf(self, file_path: str) -> Dict:
-        doc = None
-        try:
-            doc = fitz.open(file_path)
-            document_structure = {
-                'title': '',
-                'chapters': [],
-                'pages': [],
-                'metadata': {
-                    'totalPages': len(doc),
-                    'processedAt': datetime.now().isoformat(),
-                    'author': doc.metadata.get('author', ''),
-                    'creator': doc.metadata.get('creator', ''),
-                    'producer': doc.metadata.get('producer', ''),
-                    'subject': doc.metadata.get('subject', ''),
-                    'keywords': doc.metadata.get('keywords', '')
-                }
-            }
+# Endpoints
+@app.post("/register")
+async def register(user: User):
+    if await db.users.find_one({"username": user.username}):
+        raise HTTPException(status_code=400, detail="Username already registered")
+    
+    hashed_password = await get_password_hash(user.password)
+    user_dict = user.dict()
+    user_dict["password"] = hashed_password
+    
+    await db.users.insert_one(user_dict)
+    return {"message": "User registered successfully"}
 
-            if len(doc) > 0:
-                first_page = doc[0]
-                text_blocks = first_page.get_text("blocks")
-                if text_blocks:
-                    document_structure['title'] = text_blocks[0][4].strip()
-
-            current_chapter = None
-            toc = doc.get_toc()
-            chapter_page_ranges = self._get_chapter_ranges(toc, len(doc))
-            processed_pages = []
-
-            with ThreadPoolExecutor() as executor:
-                future_to_page = {
-                    executor.submit(self._process_page, doc[page_num], page_num): page_num
-                    for page_num in range(len(doc))
-                }
-
-                for future in as_completed(future_to_page):
-                    page_num = future_to_page[future]
-                    try:
-                        page_structure = future.result()
-                        processed_pages.append(page_structure)
-                        
-                        chapter_info = next(
-                            (ch for ch in chapter_page_ranges if ch['start'] <= page_num <= ch.get('end', len(doc)-1)),
-                            None
-                        )
-                        
-                        if chapter_info and chapter_info['start'] == page_num:
-                            current_chapter = Chapter(
-                                title=chapter_info['title'],
-                                page_start=page_num + 1,
-                                page_end=chapter_info.get('end'),
-                                content=[],
-                                subsections=[]
-                            )
-                            document_structure['chapters'].append(asdict(current_chapter))
-                        
-                        if current_chapter:
-                            current_chapter.content.extend(page_structure.paragraphs)
-                            
-                            for heading in page_structure.headings:
-                                if heading['level'] > 1:
-                                    current_chapter.subsections.append({
-                                        'title': heading['text'],
-                                        'page': page_num + 1,
-                                        'level': heading['level']
-                                    })
-                    except Exception as e:
-                        logger.error(f"Error processing page {page_num}: {str(e)}")
-
-            processed_pages.sort(key=lambda x: x.number)
-            document_structure['pages'] = [asdict(page) for page in processed_pages]
-            return document_structure
-
-        except Exception as e:
-            logger.error(f"PDF processing error: {str(e)}")
-            raise Exception(f"Failed to process PDF file: {str(e)}")
-
-        finally:
-            if doc:
-                doc.close()
-
-    def _get_chapter_ranges(self, toc: List, total_pages: int) -> List[Dict]:
-        chapter_ranges = []
-        for i, (level, title, page) in enumerate(toc):
-            if level == 1:
-                chapter = {
-                    'title': title,
-                    'start': page - 1,
-                    'end': toc[i+1][2] - 2 if i < len(toc) - 1 else total_pages - 1
-                }
-                chapter_ranges.append(chapter)
-        return chapter_ranges
-
-    def _process_page(self, page: fitz.Page, page_num: int) -> Page:
-        text = page.get_text("text")
-        lines = text.split('\n')
-        
-        paragraphs = []
-        headings = []
-        current_paragraph = []
-        
-        for line_num, line in enumerate(lines):
-            line = line.strip()
-            if not line or self.should_ignore(line):
-                continue
-
-            is_heading, level = self.is_heading(line)
-            if is_heading:
-                if current_paragraph:
-                    paragraphs.append(' '.join(current_paragraph))
-                    current_paragraph = []
-                
-                headings.append({
-                    'text': line,
-                    'level': level,
-                    'position': len(paragraphs)
-                })
-            else:
-                current_paragraph.append(line)
-                
-                if line.endswith('.') or line.endswith('?') or line.endswith('!'):
-                    paragraphs.append(' '.join(current_paragraph))
-                    current_paragraph = []
-
-        if current_paragraph:
-            paragraphs.append(' '.join(current_paragraph))
-
-        return Page(
-            number=page_num + 1,
-            content=text,
-            headings=headings,
-            paragraphs=paragraphs,
-            tables=self.extract_tables(page),
-            images=self.extract_images(page)
+@app.post("/token")
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = await db.users.find_one({"username": form_data.username})
+    if not user or not await verify_password(form_data.password, user["password"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
         )
+    
+    access_token = await create_access_token({"sub": user["username"]})
+    return {"access_token": access_token, "token_type": "bearer"}
 
-# Flask application setup
-app = Flask(__name__)
-CORS(app)
+@app.get("/lyrics")
+async def get_user_lyrics(current_user: dict = Depends(get_current_user)):
+    lyrics = await db.lyrics.find({"username": current_user["username"]}).to_list(length=None)
+    return lyrics
 
-UPLOAD_FOLDER = 'uploads'
-ALLOWED_EXTENSIONS = {'pdf'}
-APP_URL = os.getenv('APP_URL', 'https://tiffintreats.onrender.com')
+@app.post("/lyrics")
+async def create_lyrics(content: LyricsContent, current_user: dict = Depends(get_current_user)):
+    lyrics_doc = {
+        "username": current_user["username"],
+        "content": content.dict(),
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow()
+    }
+    result = await db.lyrics.insert_one(lyrics_doc)
+    return {"id": str(result.inserted_id)}
 
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
+@app.put("/lyrics/{lyrics_id}")
+async def update_lyrics(lyrics_id: str, content: LyricsContent, current_user: dict = Depends(get_current_user)):
+    result = await db.lyrics.update_one(
+        {"_id": lyrics_id, "username": current_user["username"]},
+        {
+            "$set": {
+                "content": content.dict(),
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Lyrics not found or unauthorized")
+    return {"message": "Lyrics updated successfully"}
 
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32MB max file size
+@app.post("/share")
+async def share_lyrics(share: LyricsShare, current_user: dict = Depends(get_current_user)):
+    if await db.shares.find_one({"extension": share.extension}):
+        raise HTTPException(status_code=400, detail="Extension already in use")
+    
+    share_doc = {
+        "username": current_user["username"],
+        "extension": share.extension,
+        "content": share.content.dict(),
+        "created_at": datetime.utcnow()
+    }
+    await db.shares.insert_one(share_doc)
+    return {"url": f"https://versz.fun/{share.extension}"}
 
-scheduler = BackgroundScheduler()
-pdf_processor = PDFProcessor()
-
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-def ping_server():
-    try:
-        response = requests.get(f"{APP_URL}/health")
-        if response.status_code == 200:
-            logger.info(f"Self-ping successful at {datetime.now()}")
-        else:
-            logger.warning(f"Self-ping failed with status code {response.status_code}")
-    except Exception as e:
-        logger.error(f"Self-ping error: {str(e)}")
-
-@app.route('/upload', methods=['POST'])
-def upload_file():
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file part'}), 400
-            
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No selected file'}), 400
-            
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(filepath)
-            
-            try:
-                document_structure = pdf_processor.process_pdf(filepath)
-                return jsonify(document_structure)
-            except Exception as e:
-                return jsonify({'error': str(e)}), 500
-            finally:
-                if os.path.exists(filepath):
-                    os.remove(filepath)
-        
-        return jsonify({'error': 'Invalid file type'}), 400
-    except Exception as e:
-        logger.error(f"Upload error: {str(e)}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-@app.route('/health', methods=['GET'])
-def health_check():
-    return jsonify({
-        'status': 'healthy',
-        'timestamp': datetime.now().isoformat(),
-        'version': '1.2.0'
-    }), 200
-
-def initialize_scheduler():
-    if not scheduler.running:
-        scheduler.add_job(func=ping_server, trigger="interval", minutes=14)
-        scheduler.start()
-        logger.info("Scheduler started successfully")
-
-if __name__ == '__main__':
-    initialize_scheduler()
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+@app.get("/share/{extension}")
+async def get_shared_lyrics(extension: str):
+    share = await db.shares.find_one({"extension": extension})
+    if not share:
+        raise HTTPException(status_code=404, detail="Shared lyrics not found")
+    return share["content"]
