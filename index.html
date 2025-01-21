@@ -338,13 +338,21 @@
             formData.append('username', username);
             formData.append('password', password);
 
-            return this.request('/token', {
+            const response = await fetch(`${this.baseURL}/token`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
                 },
-                body: formData.toString()
+                body: formData,
+                credentials: 'include'
             });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Login failed');
+            }
+
+            return response.json();
         },
 
         async register(username, name, password) {
@@ -383,7 +391,6 @@
             return this.request(`/share/${extension}`);
         }
     };
-
         // Router
         const router = {
             init() {
@@ -651,16 +658,23 @@
 
             setupAuthListeners() {
                 document.getElementById('loginForm').addEventListener('submit', async (e) => {
-                    e.preventDefault();
-                    const [username, password] = e.target.elements;
-                    try {
-                        const data = await api.login(username.value, password.value);
-                        localStorage.setItem('token', data.access_token);
-                        this.navigate('/dashboard');
-                    } catch (error) {
-                        showNotification('Login failed', 'error');
-                    }
-                });
+                  e.preventDefault();
+                        const formData = new FormData(e.target);
+                        const username = formData.get('username');
+                        const password = formData.get('password');
+
+                        try {
+                            const data = await api.login(username, password);
+                            if (data.access_token) {
+                                localStorage.setItem('token', data.access_token);
+                                router.navigate('/dashboard');
+                            } else {
+                                showNotification('Login failed', 'error');
+                            }
+                        } catch (error) {
+                            showNotification(error.message || 'Login failed', 'error');
+                        }
+                    });
 
                 document.getElementById('registerForm').addEventListener('submit', async (e) => {
                     e.preventDefault();
@@ -736,6 +750,14 @@
         document.addEventListener('DOMContentLoaded', () => {
             router.init();
         });
+
+        const loginFormHTML = `
+        <form id="loginForm">
+            <input type="text" name="username" class="input" placeholder="Username" required>
+            <input type="password" name="password" class="input" placeholder="Password" required>
+            <button type="submit" class="btn">Login</button>
+        </form>
+        `;
     </script>
 </body>
 </html>
