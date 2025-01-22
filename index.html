@@ -421,17 +421,7 @@
             init() {
                 this.handleRoute();
                 window.addEventListener('popstate', () => this.handleRoute());
-                window.addEventListener('DOMContentLoaded', () => {
-                    // Handle redirects from 404.html
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const redirectPath = urlParams.get('path');
-                    if (redirectPath) {
-                        // Remove the path parameter and replace with the actual path
-                        const newUrl = window.location.origin + redirectPath;
-                        window.history.replaceState(null, null, newUrl);
-                    }
-                    this.handleRoute();
-                });
+                window.addEventListener('DOMContentLoaded', () => this.handleRoute());
             },
 
             navigate(path) {
@@ -439,42 +429,33 @@
                 this.handleRoute();
             },
 
-            async handleRoute() {
+            handleRoute() {
                 const path = window.location.pathname;
                 
-                // Special handling for shared links
-                if (path.startsWith('/share/')) {
-                    this.renderSharedLyrics(path.split('/')[2]);
-                    return;
-                }
-
-                // Auth check for protected routes
-                if (!localStorage.getItem('token') && path !== '/') {
+                if (!localStorage.getItem('token') && path !== '/' && !path.startsWith('/share/')) {
                     this.navigate('/');
                     return;
                 }
 
-                try {
-                    switch(true) {
-                        case path === '/':
-                            await this.renderHome();
-                            break;
-                        case path === '/dashboard':
-                            await this.renderDashboard();
-                            break;
-                        case path.startsWith('/editor/'):
-                            const id = path.split('/')[2];
-                            await this.renderEditor(id);
-                            break;
-                        case path === '/editor':
-                            await this.renderEditor();
-                            break;
-                        default:
-                            await this.renderNotFound();
-                    }
-                } catch (error) {
-                    console.error('Route handling error:', error);
-                    showNotification('An error occurred while loading the page', 'error');
+                switch(true) {
+                    case path === '/':
+                        this.renderHome();
+                        break;
+                    case path === '/dashboard':
+                        this.renderDashboard();
+                        break;
+                    case path.startsWith('/editor/'):
+                        const id = path.split('/')[2];
+                        this.renderEditor(id);
+                        break;
+                    case path.startsWith('/editor'):
+                        this.renderEditor();
+                        break;
+                    case path.startsWith('/share/'):
+                        this.renderSharedLyrics(path.split('/')[2]);
+                        break;
+                    default:
+                        this.navigate('/');
                 }
             },
 
@@ -515,6 +496,40 @@
                 this.setupAuthListeners();
             },
 
+            setupAuthListeners() {
+                document.getElementById('loginForm')?.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const form = e.target;
+                    try {
+                        const data = await api.login(
+                            form.username.value,
+                            form.password.value
+                        );
+                        localStorage.setItem('token', data.access_token);
+                        this.navigate('/dashboard');
+                    } catch (error) {
+                        showNotification(error.message || 'Login failed', 'error');
+                    }
+                });
+
+                document.getElementById('registerForm')?.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const form = e.target;
+                    try {
+                        await api.register(
+                            form.username.value,
+                            form.name.value,
+                            form.password.value
+                        );
+                        const data = await api.login(form.username.value, form.password.value);
+                        localStorage.setItem('token', data.access_token);
+                        this.navigate('/dashboard');
+                    } catch (error) {
+                        showNotification(error.message || 'Registration failed', 'error');
+                    }
+                });
+            },
+
             async renderDashboard() {
                 const dashboardHTML = `
                     <div class="dashboard">
@@ -525,9 +540,7 @@
                                 <button class="btn" onclick="logout()">Logout</button>
                             </div>
                         </div>
-                        <div class="lyrics-grid" id="lyricsGrid">
-                            <div class="loading">Loading your lyrics...</div>
-                        </div>
+                        <div class="lyrics-grid" id="lyricsGrid">Loading...</div>
                     </div>
                 `;
 
@@ -592,101 +605,128 @@
                                 <input type="text" class="subtitle" id="subtitle" placeholder="Enter artist name">
                             </div>
                             <div class="lyrics-editor" id="lyrics" contenteditable="true" 
-                                placeholder="Enter your lyrics here..."></div>
+                                 placeholder="Enter your lyrics here..."></div>
                         </div>
                     </div>
                 `;
 
                 document.getElementById('app').innerHTML = editorHTML;
-                window.editor.init(id);
+                
+                // Initialize editor
+                window.editor = {
+                    title: document.getElementById('title'),
+                    subtitle: document.getElementById('subtitle'),
+                    lyrics: document.getElementById('lyrics'),
+                    fontSize: document.getElementById('fontSize'),
+                    textColor: document.getElementById('textColor'),
+                    textFormat: document.getElementById('textFormat'),
+                    currentId: id,
+
+                    init() {
+                        this.setupAutosave();
+                        this.applyStyles();
+                        if (id) {
+                            this.loadLyrics();
+                        }
+                    },
+
+                    setupAutosave() {
+                        let timeout;
+                        const elements = [this.title, this.subtitle, this.lyrics];
+                        elements.forEach(el => {
+                            el?.addEventListener('input', () => {
+                                clearTimeout(timeout);
+                                timeout = setTimeout(() => this.save(), 1000);
+                            });
+                        });
+
+                        [this.fontSize, this.textColor, this.textFormat].forEach(el => {
+                            el?.addEventListener('change', () => {
+                                this.applyStyles();
+                                this.save();
+                            });
+                        });
+                    },
+
+                    applyStyles() {
+                        if (this.lyrics) {
+                            this.lyrics.style.fontSize = `${this.fontSize.value}px`;
+                            this.lyrics.style.color = this.textColor.value;
+                            this.lyrics.style.textTransform = this.textFormat.value === 'none' ? 'none' : this.textFormat.value;
+                        }
+                    },
+
+                    async loadLyrics() {
+                        try {
+                            const lyrics = await api.getLyrics();
+                            const current = lyrics.find(l => l._id === this.currentId);
+                            if (current) {
+                                this.title.value = current.content.title || '';
+                                this.subtitle.value = current.content.subtitle || '';
+                                this.lyrics.innerHTML = current.content.lyrics || '';
+                                this.fontSize.value = current.content.fontSize || '18';
+                                this.textColor.value = current.content.textColor || 'inherit';
+                                this.textFormat.value = current.content.textFormat || 'none';
+                                this.applyStyles();
+                            }
+                        } catch (error) {
+                            showNotification('Failed to load lyrics', 'error');
+                        }
+                    },
+
+                    async save() {
+                        const content = {
+                            title: this.title.value || '',
+                            subtitle: this.subtitle.value || '',
+                            lyrics: this.lyrics.innerHTML || '',
+                            fontSize: this.fontSize.value || '18',
+                            textColor: this.textColor.value || 'inherit',
+                            textFormat: this.textFormat.value || 'none',
+                            theme: 'default'
+                        };
+
+                        try {
+                            if (this.currentId) {
+                                await api.updateLyrics(this.currentId, content);
+                            } else {
+                                const result = await api.createLyrics(content);
+                                this.currentId = result.id;
+                                history.replaceState(null, null, `/editor/${result.id}`);
+                            }
+                            showNotification('Saved successfully', 'success');
+                        } catch (error) {
+                            showNotification('Failed to save', 'error');
+                        }
+                    }
+                };
+
+                window.editor.init();
             },
 
             async renderSharedLyrics(extension) {
                 try {
+                    const lyrics = await api.getSharedLyrics(extension);
                     document.getElementById('app').innerHTML = `
                         <div class="editor">
                             <div class="toolbar">
-                                <button onclick="router.navigate('/')">← Home</button>
-                                <div style="margin-left: auto;">
-                                    <button onclick="window.print()">Print</button>
-                                </div>
+                                <button onclick="window.location.href='/'">Home</button>
                             </div>
                             <div class="editor-content">
-                                <div class="loading">Loading shared lyrics...</div>
+                                <div class="editor-header">
+                                    <h1 class="title">${lyrics.title || 'Untitled'}</h1>
+                                    <p class="subtitle">${lyrics.subtitle || 'No artist'}</p>
+                                </div>
+                                <div class="lyrics-editor" style="
+                                    font-size: ${lyrics.fontSize}px;
+                                    color: ${lyrics.textColor};
+                                    text-transform: ${lyrics.textFormat};
+                                ">${lyrics.lyrics}</div>
                             </div>
                         </div>
                     `;
-
-                    const lyrics = await api.getSharedLyrics(extension);
-                    
-                    document.querySelector('.editor-content').innerHTML = `
-                        <div class="editor-header">
-                            <h1 class="title">${lyrics.title || 'Untitled'}</h1>
-                            <p class="subtitle">${lyrics.subtitle || 'No artist'}</p>
-                        </div>
-                        <div class="lyrics-editor" style="
-                            font-size: ${lyrics.fontSize}px;
-                            color: ${lyrics.textColor};
-                            text-transform: ${lyrics.textFormat};
-                        ">${lyrics.lyrics}</div>
-                    `;
                 } catch (error) {
-                    document.querySelector('.editor-content').innerHTML = `
-                        <div class="error-message" style="text-align: center; padding: 40px;">
-                            <h2>Lyrics Not Found</h2>
-                            <p>The shared lyrics you're looking for might have been removed or the link is incorrect.</p>
-                            <button class="btn" onclick="router.navigate('/')" style="margin-top: 20px;">
-                                Go Home
-                            </button>
-                        </div>
-                    `;
+                    showNotification('Failed to load shared lyrics', 'error');
                 }
-            },
-
-            async renderNotFound() {
-                document.getElementById('app').innerHTML = `
-                    <div style="text-align: center; padding: 60px 20px;">
-                        <h1 style="font-size: 48px; margin-bottom: 20px;">404</h1>
-                        <p style="font-size: 20px; margin-bottom: 30px;">Page not found</p>
-                        <button class="btn" onclick="router.navigate('/')">
-                            Go Home
-                        </button>
-                    </div>
-                `;
-            },
-
-            setupAuthListeners() {
-                document.getElementById('loginForm')?.addEventListener('submit', async (e) => {
-                    e.preventDefault();
-                    const form = e.target;
-                    try {
-                        const data = await api.login(
-                            form.username.value,
-                            form.password.value
-                        );
-                        localStorage.setItem('token', data.access_token);
-                        this.navigate('/dashboard');
-                    } catch (error) {
-                        showNotification(error.message || 'Login failed', 'error');
-                    }
-                });
-
-                document.getElementById('registerForm')?.addEventListener('submit', async (e) => {
-                    e.preventDefault();
-                    const form = e.target;
-                    try {
-                        await api.register(
-                            form.username.value,
-                            form.name.value,
-                            form.password.value
-                        );
-                        const data = await api.login(form.username.value, form.password.value);
-                        localStorage.setItem('token', data.access_token);
-                        this.navigate('/dashboard');
-                    } catch (error) {
-                        showNotification(error.message || 'Registration failed', 'error');
-                    }
-                });
             }
         };
 
@@ -732,7 +772,6 @@
             localStorage.removeItem('token');
             router.navigate('/');
         }
-        
 
         // Initialize the application
         document.addEventListener('DOMContentLoaded', () => {
