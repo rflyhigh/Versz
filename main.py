@@ -317,7 +317,8 @@ async def share_lyrics(share: LyricsShare, current_user: dict = Depends(get_curr
         }
         await db.shares.insert_one(share_doc)
         logger.info(f"Lyrics shared successfully by user: {current_user['username']}")
-        return {"url": f"https://versz.fun/{share.extension}"}
+        
+        return {"url": f"https://versz.fun/share/{share.extension}"}
     except Exception as e:
         logger.error(f"Error sharing lyrics: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
