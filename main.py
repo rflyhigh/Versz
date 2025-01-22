@@ -329,7 +329,17 @@ async def get_shared_lyrics(extension: str):
         share = await db.shares.find_one({"extension": extension})
         if not share:
             raise HTTPException(status_code=404, detail="Shared lyrics not found")
-        return share["content"]
+        
+        # Return the complete share document content
+        return {
+            "title": share["content"]["title"],
+            "subtitle": share["content"]["subtitle"],
+            "lyrics": share["content"]["lyrics"],
+            "fontSize": share["content"]["fontSize"],
+            "textColor": share["content"]["textColor"],
+            "textFormat": share["content"]["textFormat"],
+            "theme": share.get("content", {}).get("theme", "default")
+        }
     except Exception as e:
         logger.error(f"Error fetching shared lyrics: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
