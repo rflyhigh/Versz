@@ -150,13 +150,16 @@ class TokenData(BaseModel):
     username: Optional[str] = None
 
 class LyricsContent(BaseModel):
-    title: str
-    subtitle: str
-    lyrics: str
-    fontSize: str
-    textColor: str
-    textFormat: str
-    theme: str
+    title: str = ''
+    subtitle: str = ''
+    lyrics: str = ''
+    fontSize: str = '18'
+    textColor: str = 'inherit'
+    textFormat: str = 'none'
+    theme: str = 'default'
+
+    class Config:
+        extra = "allow"
 
 class LyricsShare(BaseModel):
     extension: str
