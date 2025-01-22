@@ -303,94 +303,107 @@
     <script>
         // API Service
         const api = {
-        async request(endpoint, options = {}) {
-            const baseURL = 'https://tiffintreats.onrender.com';
-            const token = localStorage.getItem('token');
-            
-            const defaultHeaders = {
-                'Content-Type': 'application/json',
-                ...(token && { 'Authorization': `Bearer ${token}` })
-            };
-
-            try {
-                const response = await fetch(`${baseURL}${endpoint}`, {
-                    ...options,
-                    headers: {
-                        ...defaultHeaders,
-                        ...options.headers
+            baseURL: 'https://tiffintreats.onrender.com',
+        
+            async request(endpoint, options = {}) {
+                const token = localStorage.getItem('token');
+                
+                const defaultHeaders = {
+                    'Content-Type': 'application/json',
+                    ...(token && { 'Authorization': `Bearer ${token}` })
+                };
+        
+                try {
+                    const response = await fetch(`${this.baseURL}${endpoint}`, {
+                        ...options,
+                        headers: {
+                            ...defaultHeaders,
+                            ...options.headers
+                        }
+                    });
+        
+                    // First check if the response is JSON
+                    const contentType = response.headers.get('content-type');
+                    if (!contentType || !contentType.includes('application/json')) {
+                        throw new Error('Server returned non-JSON response');
                     }
-                });
-
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.detail || 'API request failed');
+        
+                    const data = await response.json();
+        
+                    if (!response.ok) {
+                        throw new Error(data.detail || 'API request failed');
+                    }
+        
+                    return data;
+                } catch (error) {
+                    console.error('API Error:', error);
+                    throw error;
                 }
-
-                return await response.json();
-            } catch (error) {
-                console.error('API Error:', error);
-                throw error;
+            },
+        
+            async login(username, password) {
+                const formData = new URLSearchParams();
+                formData.append('username', username);
+                formData.append('password', password);
+        
+                try {
+                    const response = await fetch(`${this.baseURL}/token`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: formData
+                    });
+        
+                    const data = await response.json();
+                    
+                    if (!response.ok) {
+                        throw new Error(data.detail || 'Login failed');
+                    }
+        
+                    return data;
+                } catch (error) {
+                    console.error('Login Error:', error);
+                    throw error;
+                }
+            },
+        
+            async register(username, name, password) {
+                return this.request('/register', {
+                    method: 'POST',
+                    body: JSON.stringify({ username, name, password })
+                });
+            },
+        
+            async getLyrics() {
+                return this.request('/lyrics');
+            },
+        
+            async createLyrics(content) {
+                return this.request('/lyrics', {
+                    method: 'POST',
+                    body: JSON.stringify(content)
+                });
+            },
+        
+            async updateLyrics(id, content) {
+                return this.request(`/lyrics/${id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify(content)
+                });
+            },
+        
+            async shareLyrics(extension, content) {
+                return this.request('/share', {
+                    method: 'POST',
+                    body: JSON.stringify({ extension, content })
+                });
+            },
+        
+            async getSharedLyrics(extension) {
+                return this.request(`/share/${extension}`);
             }
-        },
-
-        async login(username, password) {
-            const formData = new URLSearchParams();
-            formData.append('username', username);
-            formData.append('password', password);
-
-            const response = await fetch(`${this.baseURL}/token`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: formData,
-                credentials: 'include'
-            });
-
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.detail || 'Login failed');
-            }
-
-            return response.json();
-        },
-
-        async register(username, name, password) {
-            return this.request('/register', {
-                method: 'POST',
-                body: JSON.stringify({ username, name, password })
-            });
-        },
-
-        async getLyrics() {
-            return this.request('/lyrics');
-        },
-
-        async createLyrics(content) {
-            return this.request('/lyrics', {
-                method: 'POST',
-                body: JSON.stringify(content)
-            });
-        },
-
-        async updateLyrics(id, content) {
-            return this.request(`/lyrics/${id}`, {
-                method: 'PUT',
-                body: JSON.stringify(content)
-            });
-        },
-
-        async shareLyrics(extension, content) {
-            return this.request('/share', {
-                method: 'POST',
-                body: JSON.stringify({ extension, content })
-            });
-        },
-
-        async getSharedLyrics(extension) {
-            return this.request(`/share/${extension}`);
-        }
-    };
+        };
         // Router
         const router = {
             init() {
