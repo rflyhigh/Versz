@@ -423,6 +423,15 @@
                 window.addEventListener('popstate', () => this.handleRoute());
                 window.addEventListener('DOMContentLoaded', () => this.handleRoute());
             },
+            // Add this after router.init()
+            const urlParams = new URLSearchParams(window.location.search);
+            const redirectPath = urlParams.get('path');
+            if (redirectPath) {
+                // Remove the path parameter and replace with the actual path
+                const newUrl = window.location.origin + redirectPath;
+                window.history.replaceState(null, null, newUrl);
+                router.handleRoute();
+            }
 
             navigate(path) {
                 history.pushState(null, null, path);
