@@ -638,14 +638,15 @@
 
                     async save() {
                         const content = {
-                            title: this.title.value,
-                            subtitle: this.subtitle.value,
-                            lyrics: this.lyrics.innerHTML,
-                            fontSize: this.fontSize.value,
-                            textColor: this.textColor.value,
-                            textFormat: this.textFormat.value
+                            title: this.title.value || '',
+                            subtitle: this.subtitle.value || '',
+                            lyrics: this.lyrics.innerHTML || '',
+                            fontSize: this.fontSize.value || '18',
+                            textColor: this.textColor.value || 'inherit',
+                            textFormat: this.textFormat.value || 'none',
+                            theme: 'default' // Adding the missing required field
                         };
-
+                    
                         try {
                             if (this.currentId) {
                                 await api.updateLyrics(this.currentId, content);
@@ -656,10 +657,10 @@
                             }
                             showNotification('Saved successfully', 'success');
                         } catch (error) {
-                            showNotification('Failed to save', 'error');
+                            console.error('Save error:', error);
+                            showNotification('Failed to save: ' + (error.message || 'Unknown error'), 'error');
                         }
                     }
-                };
 
                 window.editor = editor;
                 editor.init();
