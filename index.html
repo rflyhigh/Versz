@@ -717,18 +717,31 @@
                                     <p class="subtitle">${lyrics.subtitle || 'No artist'}</p>
                                 </div>
                                 <div class="lyrics-editor" style="
-                                    font-size: ${lyrics.fontSize}px;
-                                    color: ${lyrics.textColor};
-                                    text-transform: ${lyrics.textFormat};
-                                ">${lyrics.lyrics}</div>
+                                    font-size: ${lyrics.fontSize || '18'}px;
+                                    color: ${lyrics.textColor || 'inherit'};
+                                    text-transform: ${lyrics.textFormat === 'none' ? 'none' : lyrics.textFormat || 'none'};
+                                    pointer-events: none;
+                                ">${lyrics.lyrics || ''}</div>
                             </div>
                         </div>
                     `;
                 } catch (error) {
-                    showNotification('Failed to load shared lyrics', 'error');
+                    console.error('Share error:', error);
+                    document.getElementById('app').innerHTML = `
+                        <div class="editor">
+                            <div class="toolbar">
+                                <button onclick="window.location.href='/'">Home</button>
+                            </div>
+                            <div class="editor-content">
+                                <div style="text-align: center; padding: 40px;">
+                                    <h2>Lyrics not found</h2>
+                                    <p>The shared lyrics you're looking for don't exist or have been removed.</p>
+                                </div>
+                            </div>
+                        </div>
+                    `;
                 }
             }
-        };
 
         async function saveLyrics() {
             await window.editor?.save();
