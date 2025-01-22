@@ -121,6 +121,11 @@
             font-size: 32px;
         }
 
+        .dashboard-header .btn {
+            width: auto;
+            margin-left: 10px;
+        }
+
         .lyrics-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -217,6 +222,12 @@
             padding: 20px;
             background: rgba(255, 255, 255, 0.03);
             border-radius: 8px;
+            color: white;
+        }
+
+        .lyrics-editor[contenteditable]:empty::before {
+            content: attr(placeholder);
+            color: rgba(255, 255, 255, 0.3);
         }
 
         .notification {
@@ -302,405 +313,99 @@
 
     <script>
         const api = {
-    baseURL: 'https://tiffintreats.onrender.com',
+            baseURL: 'https://tiffintreats.onrender.com',
 
-    async request(endpoint, options = {}) {
-        const token = localStorage.getItem('token');
-        
-        const defaultHeaders = {
-            'Content-Type': 'application/json',
-            ...(token && { 'Authorization': `Bearer ${token}` })
+            async request(endpoint, options = {}) {
+                const token = localStorage.getItem('token');
+                
+                const defaultHeaders = {
+                    'Content-Type': 'application/json',
+                    ...(token && { 'Authorization': `Bearer ${token}` })
+                };
+
+                try {
+                    const response = await fetch(`${this.baseURL}${endpoint}`, {
+                        ...options,
+                        headers: {
+                            ...defaultHeaders,
+                            ...options.headers
+                        }
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json().catch(() => ({}));
+                        throw new Error(error.detail || 'Request failed');
+                    }
+
+                    if (response.headers.get('content-type')?.includes('application/json')) {
+                        return await response.json();
+                    }
+                    
+                    return await response.text();
+                } catch (error) {
+                    console.error('API Error:', error);
+                    throw error;
+                }
+            },
+
+            async login(username, password) {
+                const formData = new URLSearchParams();
+                formData.append('username', username);
+                formData.append('password', password);
+
+                const response = await fetch(`${this.baseURL}/token`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({}));
+                    throw new Error(error.detail || 'Login failed');
+                }
+
+                return await response.json();
+            },
+
+            async register(username, name, password) {
+                return this.request('/register', {
+                    method: 'POST',
+                    body: JSON.stringify({ username, name, password })
+                });
+            },
+
+            async getLyrics() {
+                return this.request('/lyrics');
+            },
+
+            async createLyrics(content) {
+                return this.request('/lyrics', {
+                    method: 'POST',
+                    body: JSON.stringify(content)
+                });
+            },
+
+            async updateLyrics(id, content) {
+                return this.request(`/lyrics/${id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify(content)
+                });
+            },
+
+            async shareLyrics(extension, content) {
+                return this.request('/share', {
+                    method: 'POST',
+                    body: JSON.stringify({ extension, content })
+                });
+            },
+
+            async getSharedLyrics(extension) {
+                return this.request(`/share/${extension}`);
+            }
         };
 
-        try {
-            const response = await fetch(`${this.baseURL}${endpoint}`, {
-                ...options,
-                headers: {
-                    ...defaultHeaders,
-                    ...options.headers
-                }
-            });
-
-            if (!response.ok) {
-                const error = await response.json().catch(() => ({}));
-                throw new Error(error.detail || 'Request failed');
-            }
-
-            if (response.headers.get('content-type')?.includes('application/json')) {
-                return await response.json();
-            }
-            
-            return await response.text();
-        } catch (error) {
-            console.error('API Error:', error);
-            throw error;
-        }
-    },
-
-    async login(username, password) {
-        const formData = new URLSearchParams();
-        formData.append('username', username);
-        formData.append('password', password);
-
-        const response = await fetch(`${this.baseURL}/token`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            body: formData
-        });
-
-        if (!response.ok) {
-            const error = await response.json().catch(() => ({}));
-            throw new Error(error.detail || 'Login failed');
-        }
-
-        return await response.json();
-    },
-
-    async register(username, name, password) {
-        return this.request('/register', {
-            method: 'POST',
-            body: JSON.stringify({ username, name, password })
-        });
-    },
-
-    async getLyrics() {
-        return this.request('/lyrics');
-    },
-
-    async createLyrics(content) {
-        return this.request('/lyrics', {
-            method: 'POST',
-            body: JSON.stringify(content)
-        });
-    },
-
-    async updateLyrics(id, content) {
-        return this.request(`/lyrics/${id}`, {
-            method: 'PUT',
-            body: JSON.stringify(content)
-        });
-    },
-
-    async shareLyrics(extension, content) {
-        return this.request('/share', {
-            method: 'POST',
-            body: JSON.stringify({ extension, content })
-        });
-    },
-
-    async getSharedLyrics(extension) {
-        return this.request(`/share/${extension}`);
-    }
-};
-
-// Editor functionality
-const createEditor = (id = null) => {
-    return {
-        title: document.getElementById('title'),
-        subtitle: document.getElementById('subtitle'),
-        lyrics: document.getElementById('lyrics'),
-        fontSize: document.getElementById('fontSize'),
-        textColor: document.getElementById('textColor'),
-        textFormat: document.getElementById('textFormat'),
-        currentId: id,
-
-        init() {
-            this.setupAutosave();
-            this.applyStyles();
-            if (id) {
-                this.loadLyrics();
-            }
-        },
-
-        setupAutosave() {
-            let timeout;
-            [this.title, this.subtitle, this.lyrics].forEach(el => {
-                el.addEventListener('input', () => {
-                    clearTimeout(timeout);
-                    timeout = setTimeout(() => this.save(), 1000);
-                });
-            });
-
-            [this.fontSize, this.textColor, this.textFormat].forEach(el => {
-                el.addEventListener('change', () => {
-                    this.applyStyles();
-                    this.save();
-                });
-            });
-        },
-
-        applyStyles() {
-            this.lyrics.style.fontSize = `${this.fontSize.value}px`;
-            this.lyrics.style.color = this.textColor.value;
-            this.lyrics.style.textTransform = this.textFormat.value === 'none' ? 'none' : this.textFormat.value;
-        },
-
-        async loadLyrics() {
-            try {
-                const lyrics = await api.getLyrics();
-                const current = lyrics.find(l => l._id === this.currentId);
-                if (current) {
-                    this.title.value = current.content.title || '';
-                    this.subtitle.value = current.content.subtitle || '';
-                    this.lyrics.innerHTML = current.content.lyrics || '';
-                    this.fontSize.value = current.content.fontSize || '18';
-                    this.textColor.value = current.content.textColor || 'inherit';
-                    this.textFormat.value = current.content.textFormat || 'none';
-                    this.applyStyles();
-                }
-            } catch (error) {
-                showNotification('Failed to load lyrics', 'error');
-            }
-        },
-
-        async save() {
-            const content = {
-                title: this.title.value || '',
-                subtitle: this.subtitle.value || '',
-                lyrics: this.lyrics.innerHTML || '',
-                fontSize: this.fontSize.value || '18',
-                textColor: this.textColor.value || 'inherit',
-                textFormat: this.textFormat.value || 'none',
-                theme: 'default'
-            };
-
-            try {
-                if (this.currentId) {
-                    await api.updateLyrics(this.currentId, content);
-                } else {
-                    const result = await api.createLyrics(content);
-                    this.currentId = result.id;
-                    history.replaceState(null, null, `/editor/${result.id}`);
-                }
-                showNotification('Saved successfully', 'success');
-            } catch (error) {
-                showNotification('Failed to save', 'error');
-            }
-        }
-    };
-};
-
-// Router implementation
-const router = {
-    init() {
-        this.handleRoute();
-        window.addEventListener('popstate', () => this.handleRoute());
-    },
-
-    navigate(path) {
-        history.pushState(null, null, path);
-        this.handleRoute();
-    },
-
-    handleRoute() {
-        const path = window.location.pathname;
-        
-        if (!localStorage.getItem('token') && path !== '/') {
-            this.navigate('/');
-            return;
-        }
-
-        switch(path) {
-            case '/':
-                this.renderHome();
-                break;
-            case '/dashboard':
-                this.renderDashboard();
-                break;
-            default:
-                if (path.startsWith('/editor')) {
-                    const id = path.split('/')[2];
-                    this.renderEditor(id);
-                } else if (path.startsWith('/share/')) {
-                    this.renderSharedLyrics(path.split('/')[2]);
-                }
-        }
-    },
-
-    renderHome() {
-        if (localStorage.getItem('token')) {
-            this.navigate('/dashboard');
-            return;
-        }
-
-        document.getElementById('app').innerHTML = `
-            <div class="auth-container">
-                <div class="hero">
-                    <h1>Welcome to Versz</h1>
-                    <p>Create beautiful lyrics, style them your way, and share them with the world.</p>
-                </div>
-                <div class="auth-forms">
-                    <div class="auth-form">
-                        <h2>Login</h2>
-                        <form id="loginForm">
-                            <input type="text" name="username" class="input" placeholder="Username" required>
-                            <input type="password" name="password" class="input" placeholder="Password" required>
-                            <button type="submit" class="btn">Login</button>
-                        </form>
-                    </div>
-                    <div class="auth-form">
-                        <h2>Register</h2>
-                        <form id="registerForm">
-                            <input type="text" name="username" class="input" placeholder="Username" required>
-                            <input type="text" name="name" class="input" placeholder="Name" required>
-                            <input type="password" name="password" class="input" placeholder="Password" required>
-                            <button type="submit" class="btn">Register</button>
-                        </form>
-                    </div>
-                </div>
-            </div>
-        `;
-
-        this.setupAuthListeners();
-    },
-
-    async renderEditor(id = null) {
-        document.getElementById('app').innerHTML = `
-            <div class="editor">
-                <div class="toolbar">
-                    <button onclick="router.navigate('/dashboard')">← Back</button>
-                    <select id="fontSize">
-                        <option value="14">14px</option>
-                        <option value="16">16px</option>
-                        <option value="18" selected>18px</option>
-                        <option value="20">20px</option>
-                        <option value="24">24px</option>
-                    </select>
-                    <select id="textColor">
-                        <option value="inherit">Default</option>
-                        <option value="#FF6B6B">Red</option>
-                        <option value="#4ECDC4">Cyan</option>
-                        <option value="#FFE66D">Yellow</option>
-                        <option value="#95E1D3">Mint</option>
-                    </select>
-                    <select id="textFormat">
-                        <option value="none">Normal</option>
-                        <option value="uppercase">Uppercase</option>
-                        <option value="lowercase">Lowercase</option>
-                        <option value="capitalize">Capitalize</option>
-                    </select>
-                    <button onclick="saveLyrics()">Save</button>
-                    <button onclick="shareLyrics()">Share</button>
-                </div>
-                <div class="editor-content">
-                    <div class="editor-header">
-                        <input type="text" class="title" id="title" placeholder="Enter title">
-                        <input type="text" class="subtitle" id="subtitle" placeholder="Enter artist name">
-                    </div>
-                    <div class="lyrics-editor" id="lyrics" contenteditable="true" 
-                         placeholder="Enter your lyrics here..."></div>
-                </div>
-            </div>
-        `;
-
-        window.editor = createEditor(id);
-        window.editor.init();
-    },
-
-    async renderDashboard() {
-        document.getElementById('app').innerHTML = `
-            <div class="dashboard">
-                <div class="dashboard-header">
-                    <h1>Your Lyrics</h1>
-                    <div>
-                        <button class="btn" onclick="router.navigate('/editor')">Create New</button>
-                        <button class="btn" onclick="logout()">Logout</button>
-                    </div>
-                </div>
-                <div class="lyrics-grid" id="lyricsGrid">Loading...</div>
-            </div>
-        `;
-
-        try {
-            const lyrics = await api.getLyrics();
-            const grid = document.getElementById('lyricsGrid');
-            
-            if (!lyrics || lyrics.length === 0) {
-                grid.innerHTML = '<p style="text-align: center; opacity: 0.7;">No lyrics yet. Create your first one!</p>';
-                return;
-            }
-
-            grid.innerHTML = lyrics
-                .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
-                .map(lyric => `
-                    <div class="lyrics-card" onclick="router.navigate('/editor/${lyric._id}')">
-                        <h3>${lyric.content?.title || 'Untitled'}</h3>
-                        <p>${lyric.content?.subtitle || 'No artist'}</p>
-                        <div style="margin-top: 12px; opacity: 0.5; font-size: 12px;">
-                            Last updated: ${new Date(lyric.updated_at).toLocaleDateString()}
-                        </div>
-                    </div>
-                `).join('');
-        } catch (error) {
-            showNotification('Failed to load lyrics', 'error');
-        }
-    },
-
-    async renderSharedLyrics(extension) {
-        try {
-            const lyrics = await api.getSharedLyrics(extension);
-            document.getElementById('app').innerHTML = `
-                <div class="editor">
-                    <div class="toolbar">
-                        <button onclick="window.location.href='/'">Home</button>
-                    </div>
-                    <div class="editor-content">
-                        <div class="editor-header">
-                            <h1 class="title">${lyrics.title || 'Untitled'}</h1>
-                            <p class="subtitle">${lyrics.subtitle || 'No artist'}</p>
-                        </div>
-                        <div class="lyrics-editor" style="
-                            font-size: ${lyrics.fontSize}px;
-                            color: ${lyrics.textColor};
-                            text-transform: ${lyrics.textFormat};
-                        ">${lyrics.lyrics}</div>
-                    </div>
-                </div>
-            `;
-        } catch (error) {
-            showNotification('Failed to load shared lyrics', 'error');
-        }
-    },
-
-    setupAuthListeners() {
-        document.getElementById('loginForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const form = e.target;
-            try {
-                const data = await api.login(
-                    form.username.value,
-                    form.password.value
-                );
-                localStorage.setItem('token', data.access_token);
-                this.navigate('/dashboard');
-            } catch (error) {
-                showNotification(error.message || 'Login failed', 'error');
-            }
-        });
-
-        document.getElementById('registerForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const form = e.target;
-            try {
-                await api.register(
-                    form.username.value,
-                    form.name.value,
-                    form.password.value
-                );
-                const data = await api.login(form.username.value, form.password.value);
-                localStorage.setItem('token', data.access_token);
-                this.navigate('/dashboard');
-            } catch (error) {
-                showNotification(error.message || 'Registration failed', 'error');
-            }
-        });
-    }
-};
-    
-
-        // Utility functions
         function showNotification(message, type = 'info') {
             const notification = document.createElement('div');
             notification.className = `notification ${type}`;
@@ -712,8 +417,321 @@ const router = {
             }, 3000);
         }
 
+        const router = {
+            init() {
+                this.handleRoute();
+                window.addEventListener('popstate', () => this.handleRoute());
+                window.addEventListener('DOMContentLoaded', () => this.handleRoute());
+            },
+
+            navigate(path) {
+                history.pushState(null, null, path);
+                this.handleRoute();
+            },
+
+            handleRoute() {
+                const path = window.location.pathname;
+                
+                if (!localStorage.getItem('token') && path !== '/' && !path.startsWith('/share/')) {
+                    this.navigate('/');
+                    return;
+                }
+
+                switch(true) {
+                    case path === '/':
+                        this.renderHome();
+                        break;
+                    case path === '/dashboard':
+                        this.renderDashboard();
+                        break;
+                    case path.startsWith('/editor/'):
+                        const id = path.split('/')[2];
+                        this.renderEditor(id);
+                        break;
+                    case path.startsWith('/editor'):
+                        this.renderEditor();
+                        break;
+                    case path.startsWith('/share/'):
+                        this.renderSharedLyrics(path.split('/')[2]);
+                        break;
+                    default:
+                        this.navigate('/');
+                }
+            },
+
+            async renderHome() {
+                if (localStorage.getItem('token')) {
+                    this.navigate('/dashboard');
+                    return;
+                }
+
+                document.getElementById('app').innerHTML = `
+                    <div class="auth-container">
+                        <div class="hero">
+                            <h1>Welcome to Versz</h1>
+                            <p>Create beautiful lyrics, style them your way, and share them with the world.</p>
+                        </div>
+                        <div class="auth-forms">
+                            <div class="auth-form">
+                                <h2>Login</h2>
+                                <form id="loginForm">
+                                    <input type="text" name="username" class="input" placeholder="Username" required>
+                                    <input type="password" name="password" class="input" placeholder="Password" required>
+                                    <button type="submit" class="btn">Login</button>
+                                </form>
+                            </div>
+                            <div class="auth-form">
+                                <h2>Register</h2>
+                                <form id="registerForm">
+                                    <input type="text" name="username" class="input" placeholder="Username" required>
+                                    <input type="text" name="name" class="input" placeholder="Name" required>
+                                    <input type="password" name="password" class="input" placeholder="Password" required>
+                                    <button type="submit" class="btn">Register</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                this.setupAuthListeners();
+            },
+
+            setupAuthListeners() {
+                document.getElementById('loginForm')?.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const form = e.target;
+                    try {
+                        const data = await api.login(
+                            form.username.value,
+                            form.password.value
+                        );
+                        localStorage.setItem('token', data.access_token);
+                        this.navigate('/dashboard');
+                    } catch (error) {
+                        showNotification(error.message || 'Login failed', 'error');
+                    }
+                });
+
+                document.getElementById('registerForm')?.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const form = e.target;
+                    try {
+                        await api.register(
+                            form.username.value,
+                            form.name.value,
+                            form.password.value
+                        );
+                        const data = await api.login(form.username.value, form.password.value);
+                        localStorage.setItem('token', data.access_token);
+                        this.navigate('/dashboard');
+                    } catch (error) {
+                        showNotification(error.message || 'Registration failed', 'error');
+                    }
+                });
+            },
+
+            async renderDashboard() {
+                const dashboardHTML = `
+                    <div class="dashboard">
+                        <div class="dashboard-header">
+                            <h1>Your Lyrics</h1>
+                            <div>
+                                <button class="btn" onclick="router.navigate('/editor')">Create New</button>
+                                <button class="btn" onclick="logout()">Logout</button>
+                            </div>
+                        </div>
+                        <div class="lyrics-grid" id="lyricsGrid">Loading...</div>
+                    </div>
+                `;
+
+                document.getElementById('app').innerHTML = dashboardHTML;
+
+                try {
+                    const lyrics = await api.getLyrics();
+                    const grid = document.getElementById('lyricsGrid');
+                    
+                    if (!lyrics || lyrics.length === 0) {
+                        grid.innerHTML = '<p style="text-align: center; opacity: 0.7;">No lyrics yet. Create your first one!</p>';
+                        return;
+                    }
+
+                    grid.innerHTML = lyrics
+                        .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+                        .map(lyric => `
+                            <div class="lyrics-card" onclick="router.navigate('/editor/${lyric._id}')">
+                                <h3>${lyric.content?.title || 'Untitled'}</h3>
+                                <p>${lyric.content?.subtitle || 'No artist'}</p>
+                                <div style="margin-top: 12px; opacity: 0.5; font-size: 12px;">
+                                    Last updated: ${new Date(lyric.updated_at).toLocaleDateString()}
+                                </div>
+                            </div>
+                        `).join('');
+                } catch (error) {
+                    showNotification('Failed to load lyrics', 'error');
+                }
+            },
+
+            async renderEditor(id = null) {
+                const editorHTML = `
+                    <div class="editor">
+                        <div class="toolbar">
+                            <button onclick="router.navigate('/dashboard')">← Back</button>
+                            <select id="fontSize">
+                                <option value="14">14px</option>
+                                <option value="16">16px</option>
+                                <option value="18" selected>18px</option>
+                                <option value="20">20px</option>
+                                <option value="24">24px</option>
+                            </select>
+                            <select id="textColor">
+                                <option value="inherit">Default</option>
+                                <option value="#FF6B6B">Red</option>
+                                <option value="#4ECDC4">Cyan</option>
+                                <option value="#FFE66D">Yellow</option>
+                                <option value="#95E1D3">Mint</option>
+                            </select>
+                            <select id="textFormat">
+                                <option value="none">Normal</option>
+                                <option value="uppercase">Uppercase</option>
+                                <option value="lowercase">Lowercase</option>
+                                <option value="capitalize">Capitalize</option>
+                            </select>
+                            <button onclick="saveLyrics()">Save</button>
+                            <button onclick="shareLyrics()">Share</button>
+                        </div>
+                        <div class="editor-content">
+                            <div class="editor-header">
+                                <input type="text" class="title" id="title" placeholder="Enter title">
+                                <input type="text" class="subtitle" id="subtitle" placeholder="Enter artist name">
+                            </div>
+                            <div class="lyrics-editor" id="lyrics" contenteditable="true" 
+                                 placeholder="Enter your lyrics here..."></div>
+                        </div>
+                    </div>
+                `;
+
+                document.getElementById('app').innerHTML = editorHTML;
+                
+                // Initialize editor
+                window.editor = {
+                    title: document.getElementById('title'),
+                    subtitle: document.getElementById('subtitle'),
+                    lyrics: document.getElementById('lyrics'),
+                    fontSize: document.getElementById('fontSize'),
+                    textColor: document.getElementById('textColor'),
+                    textFormat: document.getElementById('textFormat'),
+                    currentId: id,
+
+                    init() {
+                        this.setupAutosave();
+                        this.applyStyles();
+                        if (id) {
+                            this.loadLyrics();
+                        }
+                    },
+
+                    setupAutosave() {
+                        let timeout;
+                        const elements = [this.title, this.subtitle, this.lyrics];
+                        elements.forEach(el => {
+                            el?.addEventListener('input', () => {
+                                clearTimeout(timeout);
+                                timeout = setTimeout(() => this.save(), 1000);
+                            });
+                        });
+
+                        [this.fontSize, this.textColor, this.textFormat].forEach(el => {
+                            el?.addEventListener('change', () => {
+                                this.applyStyles();
+                                this.save();
+                            });
+                        });
+                    },
+
+                    applyStyles() {
+                        if (this.lyrics) {
+                            this.lyrics.style.fontSize = `${this.fontSize.value}px`;
+                            this.lyrics.style.color = this.textColor.value;
+                            this.lyrics.style.textTransform = this.textFormat.value === 'none' ? 'none' : this.textFormat.value;
+                        }
+                    },
+
+                    async loadLyrics() {
+                        try {
+                            const lyrics = await api.getLyrics();
+                            const current = lyrics.find(l => l._id === this.currentId);
+                            if (current) {
+                                this.title.value = current.content.title || '';
+                                this.subtitle.value = current.content.subtitle || '';
+                                this.lyrics.innerHTML = current.content.lyrics || '';
+                                this.fontSize.value = current.content.fontSize || '18';
+                                this.textColor.value = current.content.textColor || 'inherit';
+                                this.textFormat.value = current.content.textFormat || 'none';
+                                this.applyStyles();
+                            }
+                        } catch (error) {
+                            showNotification('Failed to load lyrics', 'error');
+                        }
+                    },
+
+                    async save() {
+                        const content = {
+                            title: this.title.value || '',
+                            subtitle: this.subtitle.value || '',
+                            lyrics: this.lyrics.innerHTML || '',
+                            fontSize: this.fontSize.value || '18',
+                            textColor: this.textColor.value || 'inherit',
+                            textFormat: this.textFormat.value || 'none',
+                            theme: 'default'
+                        };
+
+                        try {
+                            if (this.currentId) {
+                                await api.updateLyrics(this.currentId, content);
+                            } else {
+                                const result = await api.createLyrics(content);
+                                this.currentId = result.id;
+                                history.replaceState(null, null, `/editor/${result.id}`);
+                            }
+                            showNotification('Saved successfully', 'success');
+                        } catch (error) {
+                            showNotification('Failed to save', 'error');
+                        }
+                    }
+                };
+
+                window.editor.init();
+            },
+
+            async renderSharedLyrics(extension) {
+                try {
+                    const lyrics = await api.getSharedLyrics(extension);
+                    document.getElementById('app').innerHTML = `
+                        <div class="editor">
+                            <div class="toolbar">
+                                <button onclick="window.location.href='/'">Home</button>
+                            </div>
+                            <div class="editor-content">
+                                <div class="editor-header">
+                                    <h1 class="title">${lyrics.title || 'Untitled'}</h1>
+                                    <p class="subtitle">${lyrics.subtitle || 'No artist'}</p>
+                                </div>
+                                <div class="lyrics-editor" style="
+                                    font-size: ${lyrics.fontSize}px;
+                                    color: ${lyrics.textColor};
+                                    text-transform: ${lyrics.textFormat};
+                                ">${lyrics.lyrics}</div>
+                            </div>
+                        </div>
+                    `;
+                } catch (error) {
+                    showNotification('Failed to load shared lyrics', 'error');
+                }
+            }
+        };
+
         async function saveLyrics() {
-            await window.editor.save();
+            await window.editor?.save();
         }
 
         async function shareLyrics() {
@@ -759,14 +777,6 @@ const router = {
         document.addEventListener('DOMContentLoaded', () => {
             router.init();
         });
-
-        const loginFormHTML = `
-        <form id="loginForm">
-            <input type="text" name="username" class="input" placeholder="Username" required>
-            <input type="password" name="password" class="input" placeholder="Password" required>
-            <button type="submit" class="btn">Login</button>
-        </form>
-        `;
     </script>
 </body>
 </html>
