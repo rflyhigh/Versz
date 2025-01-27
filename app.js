@@ -7,11 +7,7 @@ class VerszApp {
         this.handleRouting();
     }
 
-    navigateToProfile(userId) {
-        // Update URL without triggering page reload
-        history.pushState({}, '', `/${userId}`);
-        this.handleRouting();
-    }
+    
     setupEventListeners() {
         document.getElementById('login-btn')?.addEventListener('click', () => this.login());
         document.getElementById('logout-btn')?.addEventListener('click', () => this.logout());
