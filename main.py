@@ -79,7 +79,7 @@ async def health():
 async def spotify_callback(code: str, request: Request):
     try:
         async with httpx.AsyncClient() as client:
-            # Exchange code for tokens
+            # Exchange code for tokens with proper headers
             token_response = await client.post(
                 "https://accounts.spotify.com/api/token",
                 data={
@@ -89,48 +89,61 @@ async def spotify_callback(code: str, request: Request):
                     "client_id": SPOTIFY_CLIENT_ID,
                     "client_secret": SPOTIFY_CLIENT_SECRET,
                 },
-                headers={"Content-Type": "application/x-www-form-urlencoded"}
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Accept": "application/json"
+                }
             )
             
             if token_response.status_code != 200:
+                print(f"Token response error: {token_response.status_code}, {token_response.text}")
                 raise HTTPException(status_code=400, detail="Failed to get token")
             
             token_data = token_response.json()
             
-            # Get user profile
+            # Get user profile with proper error handling
             user_response = await client.get(
                 "https://api.spotify.com/v1/me",
-                headers={"Authorization": f"Bearer {token_data['access_token']}"},
+                headers={
+                    "Authorization": f"Bearer {token_data['access_token']}",
+                    "Accept": "application/json"
+                },
+                timeout=10.0  # Add timeout
             )
             
             if user_response.status_code != 200:
+                print(f"User profile error: {user_response.status_code}, {user_response.text}")
                 raise HTTPException(status_code=400, detail="Failed to get user profile")
             
             user_data = user_response.json()
             
-            # Store user data with profile information
+            # Store user data with improved error handling
             async with aiosqlite.connect(DATABASE_PATH) as db:
-                cursor = await db.execute(
-                    "SELECT spotify_id FROM users WHERE spotify_id = ?",
-                    (user_data["id"],)
-                )
-                existing_user = await cursor.fetchone()
+                try:
+                    cursor = await db.execute(
+                        "SELECT spotify_id FROM users WHERE spotify_id = ?",
+                        (user_data["id"],)
+                    )
+                    existing_user = await cursor.fetchone()
 
-                await db.execute(
-                    """
-                    INSERT OR REPLACE INTO users 
-                    (spotify_id, access_token, refresh_token, token_expiry, display_name, avatar_url)
-                    VALUES (?, ?, ?, datetime('now', '+1 hour'), ?, ?)
-                    """,
-                    (
-                        user_data["id"],
-                        token_data["access_token"],
-                        token_data["refresh_token"],
-                        user_data.get("display_name", user_data["id"]),
-                        user_data.get("images", [{}])[0].get("url", None)
-                    ),
-                )
-                await db.commit()
+                    await db.execute(
+                        """
+                        INSERT OR REPLACE INTO users 
+                        (spotify_id, access_token, refresh_token, token_expiry, display_name, avatar_url)
+                        VALUES (?, ?, ?, datetime('now', '+1 hour'), ?, ?)
+                        """,
+                        (
+                            user_data["id"],
+                            token_data["access_token"],
+                            token_data.get("refresh_token"),  # Handle missing refresh token
+                            user_data.get("display_name", user_data["id"]),
+                            user_data.get("images", [{}])[0].get("url", None)
+                        ),
+                    )
+                    await db.commit()
+                except Exception as db_error:
+                    print(f"Database error: {str(db_error)}")
+                    raise HTTPException(status_code=500, detail="Database error")
             
             return {
                 "success": True,
@@ -138,10 +151,12 @@ async def spotify_callback(code: str, request: Request):
                 "is_new_user": not existing_user
             }
             
+    except httpx.RequestError as e:
+        print(f"Network error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Network error")
     except Exception as e:
         print(f"Callback error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
 @app.get("/users/{user_id}")
 async def get_user(user_id: str):
     async with aiosqlite.connect(DATABASE_PATH) as db:
