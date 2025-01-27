@@ -3,6 +3,14 @@ class VerszApp {
         this.currentTrackInterval = null;
         this.recentTracksInterval = null;
         this.searchDebounceTimeout = null;
+        
+        // Handle GitHub Pages redirect
+        const redirectPath = sessionStorage.getItem('redirect_path');
+        if (redirectPath) {
+            sessionStorage.removeItem('redirect_path');
+            history.replaceState(null, '', redirectPath);
+        }
+        
         this.setupEventListeners();
         this.checkAuthCallback();
         this.checkExistingSession();
