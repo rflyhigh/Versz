@@ -228,23 +228,42 @@ async def get_currently_playing(user_id: str):
             }
 
 @app.get("/users/search")
-async def search_users(query: str):
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        cursor = await db.execute(
-            """
-            SELECT spotify_id, display_name, avatar_url
-            FROM users 
-            WHERE spotify_id LIKE ? OR display_name LIKE ?
-            LIMIT 10
-            """,
-            (f"%{query}%", f"%{query}%")
+async def search_users(query: str = None):
+    if not query:
+        return []
+        
+    try:
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            # Convert the results to make them JSON serializable
+            db.row_factory = aiosqlite.Row
+            
+            cursor = await db.execute(
+                """
+                SELECT spotify_id, display_name, avatar_url
+                FROM users 
+                WHERE LOWER(spotify_id) LIKE LOWER(?) OR LOWER(display_name) LIKE LOWER(?)
+                LIMIT 10
+                """,
+                (f"%{query}%", f"%{query}%")
+            )
+            
+            users = await cursor.fetchall()
+            
+            return [
+                {
+                    "id": user['spotify_id'],
+                    "display_name": user['display_name'],
+                    "avatar_url": user['avatar_url']
+                }
+                for user in users
+            ]
+            
+    except Exception as e:
+        print(f"Search error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="An error occurred while searching for users"
         )
-        users = await cursor.fetchall()
-        return [{
-            "id": user[0],
-            "display_name": user[1],
-            "avatar_url": user[2]
-        } for user in users]
 
 async def update_recent_tracks():
     async with aiosqlite.connect(DATABASE_PATH) as db:
