@@ -536,44 +536,7 @@ input:focus:not(:focus-visible) {
     outline: none;
 }
 
-/* Mobile Responsive */
-@media (max-width: 768px) {
-    .nav-content {
-        padding: 0.75rem 1rem;
-    }
 
-    #search-container {
-        display: none;
-    }
-
-    .profile-header {
-        flex-direction: column;
-        text-align: center;
-        padding: 1.5rem;
-        gap: 1rem;
-    }
-
-    .stats {
-        justify-content: center;
-    }
-
-    .content-grid {
-        grid-template-columns: 1fr;
-        padding: 1rem;
-    }
-
-    .track-card {
-        margin-bottom: 1rem;
-    }
-
-    .login-container {
-        padding: 1rem;
-        margin: 1rem;
-    }
-
-    .login-container h1 {
-        font-size: 1.75rem;
-    }
     /* Continuing Mobile Responsive Styles */
 @media (max-width: 768px) {
     .nav-content {
