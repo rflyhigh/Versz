@@ -1,5 +1,7 @@
 class VerszApp {
     constructor() {
+        this.currentTrackInterval = null;
+        this.recentTracksInterval = null;
         this.setupEventListeners();
         this.checkAuthCallback();
         this.checkExistingSession();
@@ -7,11 +9,11 @@ class VerszApp {
         this.handleRouting();
     }
 
-    
     setupEventListeners() {
         document.getElementById('login-btn')?.addEventListener('click', () => this.login());
         document.getElementById('logout-btn')?.addEventListener('click', () => this.logout());
         window.addEventListener('popstate', () => this.handleRouting());
+        document.querySelector('form')?.addEventListener('submit', (e) => e.preventDefault());
     }
 
     setupSearch() {
@@ -27,8 +29,9 @@ class VerszApp {
 
             try {
                 const response = await fetch(`${config.backendUrl}/users/search?query=${encodeURIComponent(query)}`);
-                const users = await response.json();
+                if (!response.ok) throw new Error('Search failed');
                 
+                const users = await response.json();
                 searchResults.innerHTML = users.map(user => `
                     <div class="search-result-item" data-userid="${user.id}">
                         <img src="${user.avatar_url || '/api/placeholder/32/32'}" alt="Avatar" class="search-avatar">
@@ -39,6 +42,7 @@ class VerszApp {
                 searchResults.classList.remove('hidden');
             } catch (error) {
                 console.error('Search failed:', error);
+                this.showError('search-error', 'Failed to search users. Please try again.');
             }
         });
 
@@ -47,6 +51,8 @@ class VerszApp {
             if (userItem) {
                 const userId = userItem.dataset.userid;
                 this.navigateToProfile(userId);
+                searchResults.classList.add('hidden');
+                searchInput.value = '';
             }
         });
 
@@ -57,11 +63,12 @@ class VerszApp {
         });
     }
 
-    
-
     login() {
+        const state = Math.random().toString(36).substring(7);
+        localStorage.setItem('spotify_auth_state', state);
+        
         const redirectUri = `${window.location.origin}/callback.html`;
-        const authUrl = `https://accounts.spotify.com/authorize?client_id=${config.clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(config.scopes)}`;
+        const authUrl = `https://accounts.spotify.com/authorize?client_id=${config.clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(config.scopes)}&state=${state}`;
         localStorage.setItem('login_pending', 'true');
         window.location.href = authUrl;
     }
@@ -69,26 +76,61 @@ class VerszApp {
     logout() {
         localStorage.removeItem('spotify_user_id');
         localStorage.removeItem('login_pending');
+        localStorage.removeItem('spotify_auth_state');
+        this.clearIntervals();
         window.location.href = '/';
+    }
+
+    clearIntervals() {
+        if (this.currentTrackInterval) {
+            clearInterval(this.currentTrackInterval);
+            this.currentTrackInterval = null;
+        }
+        if (this.recentTracksInterval) {
+            clearInterval(this.recentTracksInterval);
+            this.recentTracksInterval = null;
+        }
     }
 
     async checkAuthCallback() {
         const urlParams = new URLSearchParams(window.location.search);
         const code = urlParams.get('code');
+        const state = urlParams.get('state');
+        const storedState = localStorage.getItem('spotify_auth_state');
         
         if (code) {
+            if (state !== storedState) {
+                console.error('State mismatch');
+                this.logout();
+                return;
+            }
+            
             try {
-                const response = await fetch(`${config.backendUrl}/auth/callback?code=${code}`);
+                const response = await fetch(`${config.backendUrl}/auth/callback`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        code: code,
+                        redirect_uri: `${window.location.origin}/callback.html`
+                    })
+                });
+                
+                if (!response.ok) throw new Error('Authentication failed');
                 const data = await response.json();
                 
                 if (data.success) {
                     localStorage.setItem('spotify_user_id', data.user_id);
                     localStorage.removeItem('login_pending');
+                    localStorage.removeItem('spotify_auth_state');
                     window.location.href = '/';
                 }
             } catch (error) {
                 console.error('Authentication failed:', error);
                 localStorage.removeItem('login_pending');
+                localStorage.removeItem('spotify_auth_state');
+                this.showError('login-error', 'Authentication failed. Please try again.');
             }
         }
     }
@@ -107,7 +149,6 @@ class VerszApp {
             } catch (error) {
                 console.error('Session check failed:', error);
             }
-            // If we get here, the session is invalid
             this.logout();
         } else {
             this.showLoginSection();
@@ -115,17 +156,23 @@ class VerszApp {
     }
 
     navigateToProfile(userId) {
-        // Update URL without triggering page reload
-        history.pushState({}, '', `/${userId}`);
-        this.handleRouting();
+        const newPath = `/${userId}`;
+        if (window.location.pathname !== newPath) {
+            history.pushState({}, '', newPath);
+            this.handleRouting();
+        }
     }
 
     async handleRouting() {
-        // Remove any query parameters from the path
         const path = window.location.pathname;
-        const viewingUserId = path === '/' ? 
-            localStorage.getItem('spotify_user_id') : 
-            path.split('/').filter(Boolean)[0];  // Get first non-empty segment
+        let viewingUserId;
+        
+        if (path === '/') {
+            viewingUserId = localStorage.getItem('spotify_user_id');
+        } else {
+            const segments = path.split('/').filter(Boolean);
+            viewingUserId = segments[0];
+        }
         
         if (!viewingUserId) {
             this.showLoginSection();
@@ -134,84 +181,71 @@ class VerszApp {
 
         try {
             const response = await fetch(`${config.backendUrl}/users/${viewingUserId}`);
-            if (!response.ok) {
-                throw new Error('User not found');
-            }
-            const userData = await response.json();
+            if (!response.ok) throw new Error('User not found');
             
+            const userData = await response.json();
             const isOwnProfile = viewingUserId === localStorage.getItem('spotify_user_id');
             await this.showProfileSection(userData, isOwnProfile);
         } catch (error) {
             console.error('Failed to load user profile:', error);
-            window.location.href = '/';
+            this.showError('profile-error', 'Failed to load profile. Please try again later.');
+            if (!localStorage.getItem('spotify_user_id')) {
+                window.location.href = '/';
+            }
         }
     }
 
-    setupEventListeners() {
-        document.getElementById('login-btn')?.addEventListener('click', () => this.login());
-        document.getElementById('logout-btn')?.addEventListener('click', () => this.logout());
-        
-        // Update popstate handler to properly handle browser back/forward
-        window.addEventListener('popstate', (event) => {
-            this.handleRouting();
-        });
-    }
-
     showLoginSection() {
-        document.getElementById('login-section').classList.remove('hidden');
-        document.getElementById('profile-section').classList.add('hidden');
-        document.getElementById('user-info').classList.add('hidden');
+        document.getElementById('login-section')?.classList.remove('hidden');
+        document.getElementById('profile-section')?.classList.add('hidden');
+        document.getElementById('user-info')?.classList.add('hidden');
+        this.clearIntervals();
     }
 
     async showProfileSection(userData, isOwnProfile) {
-        document.getElementById('login-section').classList.add('hidden');
-        document.getElementById('profile-section').classList.remove('hidden');
+        document.getElementById('login-section')?.classList.add('hidden');
+        document.getElementById('profile-section')?.classList.remove('hidden');
         
-        // Update header user info if logged in
         const loggedInUserId = localStorage.getItem('spotify_user_id');
         if (loggedInUserId) {
             const userInfo = document.getElementById('user-info');
-            userInfo.classList.remove('hidden');
+            userInfo?.classList.remove('hidden');
             
-            // Fetch logged-in user data if viewing another profile
             if (!isOwnProfile) {
                 try {
                     const response = await fetch(`${config.backendUrl}/users/${loggedInUserId}`);
                     if (response.ok) {
                         const loggedInUserData = await response.json();
-                        document.getElementById('username').textContent = loggedInUserData.display_name || loggedInUserData.id;
-                        document.getElementById('user-avatar').src = loggedInUserData.avatar_url || '/api/placeholder/32/32';
-                        document.getElementById('profile-link').href = `/${loggedInUserData.id}`;
+                        this.updateUserInfo(loggedInUserData);
                     }
                 } catch (error) {
                     console.error('Failed to fetch logged-in user data:', error);
                 }
             } else {
-                // Use current userData for own profile
-                document.getElementById('username').textContent = userData.display_name || userData.id;
-                document.getElementById('user-avatar').src = userData.avatar_url || '/api/placeholder/32/32';
-                document.getElementById('profile-link').href = `/${userData.id}`;
+                this.updateUserInfo(userData);
             }
         }
 
-        // Update profile section
-        document.getElementById('profile-username').textContent = userData.display_name || userData.id;
-        document.getElementById('profile-avatar').src = userData.avatar_url || '/api/placeholder/150/150';
-        
+        this.updateProfileInfo(userData);
         await this.startTracking(userData.id);
     }
 
+    updateUserInfo(userData) {
+        document.getElementById('username').textContent = userData.display_name || userData.id;
+        document.getElementById('user-avatar').src = userData.avatar_url || '/api/placeholder/32/32';
+        document.getElementById('profile-link').href = `/${userData.id}`;
+    }
+
+    updateProfileInfo(userData) {
+        document.getElementById('profile-username').textContent = userData.display_name || userData.id;
+        document.getElementById('profile-avatar').src = userData.avatar_url || '/api/placeholder/150/150';
+    }
+
     async startTracking(userId) {
+        this.clearIntervals();
+        
         await this.updateCurrentTrack(userId);
         await this.updateRecentTracks(userId);
-        
-        if (this.currentTrackInterval) {
-            clearInterval(this.currentTrackInterval);
-        }
-        
-        if (this.recentTracksInterval) {
-            clearInterval(this.recentTracksInterval);
-        }
         
         this.currentTrackInterval = setInterval(() => this.updateCurrentTrack(userId), 30000);
         this.recentTracksInterval = setInterval(() => this.updateRecentTracks(userId), 120000);
@@ -242,6 +276,7 @@ class VerszApp {
             }
         } catch (error) {
             console.error('Failed to update current track:', error);
+            this.showError('track-error', 'Failed to update current track.');
         }
     }
 
@@ -270,6 +305,7 @@ class VerszApp {
             `).join('');
         } catch (error) {
             console.error('Failed to update recent tracks:', error);
+            this.showError('recent-tracks-error', 'Failed to update recent tracks.');
         }
     }
 
@@ -283,6 +319,20 @@ class VerszApp {
         if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
         return date.toLocaleDateString();
     }
+
+    showError(elementId, message) {
+        const errorElement = document.getElementById(elementId);
+        if (errorElement) {
+            errorElement.textContent = message;
+            errorElement.classList.remove('hidden');
+            setTimeout(() => {
+                errorElement.classList.add('hidden');
+            }, 5000);
+        }
+    }
 }
 
-new VerszApp();
+// Initialize the app when the DOM is fully loaded
+document.addEventListener('DOMContentLoaded', () => {
+    new VerszApp();
+});
