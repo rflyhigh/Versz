@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2AuthorizationCodeBearer
 from typing import Optional, List
@@ -75,53 +75,65 @@ async def health_check():
 async def health():
     return {"status": "healthy"}
 
-@app.post("/auth/callback")
-async def spotify_callback(code: str):
-    async with httpx.AsyncClient() as client:
-        # Exchange code for tokens
-        token_response = await client.post(
-            "https://accounts.spotify.com/api/token",
-            data={
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": SPOTIFY_REDIRECT_URI,
-                "client_id": SPOTIFY_CLIENT_ID,
-                "client_secret": SPOTIFY_CLIENT_SECRET,
-            },
-        )
-        
-        if token_response.status_code != 200:
-            raise HTTPException(status_code=400, detail="Failed to get token")
-        
-        token_data = token_response.json()
-        
-        # Get user profile
-        user_response = await client.get(
-            "https://api.spotify.com/v1/me",
-            headers={"Authorization": f"Bearer {token_data['access_token']}"},
-        )
-        
-        if user_response.status_code != 200:
-            raise HTTPException(status_code=400, detail="Failed to get user profile")
-        
-        user_data = user_response.json()
-        
-        # Store user data
-        async with aiosqlite.connect(DATABASE_PATH) as db:
-            await db.execute(
-                """
-                INSERT OR REPLACE INTO users (spotify_id, access_token, refresh_token, token_expiry)
-                VALUES (?, ?, ?, datetime('now', '+1 hour'))
-                """,
-                (
-                    user_data["id"],
-                    token_data["access_token"],
-                    token_data["refresh_token"],
-                ),
+@app.get("/auth/callback")
+async def spotify_callback(code: str, request: Request):
+    print(f"Received callback with code: {code}")  # Debug logging
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            # Exchange code for tokens
+            token_response = await client.post(
+                "https://accounts.spotify.com/api/token",
+                data={
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "redirect_uri": SPOTIFY_REDIRECT_URI,
+                    "client_id": SPOTIFY_CLIENT_ID,
+                    "client_secret": SPOTIFY_CLIENT_SECRET,
+                },
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded"
+                }
             )
-            await db.commit()
-        
-        return {"success": True, "user_id": user_data["id"]}
+            
+            if token_response.status_code != 200:
+                print(f"Token response error: {token_response.text}")  # Debug logging
+                raise HTTPException(status_code=400, detail="Failed to get token")
+            
+            token_data = token_response.json()
+            
+            # Get user profile
+            user_response = await client.get(
+                "https://api.spotify.com/v1/me",
+                headers={"Authorization": f"Bearer {token_data['access_token']}"},
+            )
+            
+            if user_response.status_code != 200:
+                print(f"User profile error: {user_response.text}")  # Debug logging
+                raise HTTPException(status_code=400, detail="Failed to get user profile")
+            
+            user_data = user_response.json()
+            
+            # Store user data
+            async with aiosqlite.connect(DATABASE_PATH) as db:
+                await db.execute(
+                    """
+                    INSERT OR REPLACE INTO users (spotify_id, access_token, refresh_token, token_expiry)
+                    VALUES (?, ?, ?, datetime('now', '+1 hour'))
+                    """,
+                    (
+                        user_data["id"],
+                        token_data["access_token"],
+                        token_data["refresh_token"],
+                    ),
+                )
+                await db.commit()
+            
+            return {"success": True, "user_id": user_data["id"]}
+            
+    except Exception as e:
+        print(f"Callback error: {str(e)}")  # Debug logging
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/users/{user_id}/recent-tracks")
 async def get_recent_tracks(user_id: str):
