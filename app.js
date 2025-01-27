@@ -30,7 +30,8 @@ class VerszApp {
                 
                 searchResults.innerHTML = users.map(user => `
                     <div class="search-result-item" data-userid="${user.id}">
-                        ${user.id}
+                        <img src="${user.avatar_url || '/api/placeholder/32/32'}" alt="Avatar" class="search-avatar">
+                        <span class="search-username">${user.display_name || user.id}</span>
                     </div>
                 `).join('');
                 
@@ -63,11 +64,13 @@ class VerszApp {
     login() {
         const redirectUri = `${window.location.origin}/callback.html`;
         const authUrl = `https://accounts.spotify.com/authorize?client_id=${config.clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(config.scopes)}`;
+        localStorage.setItem('login_pending', 'true');
         window.location.href = authUrl;
     }
 
     logout() {
         localStorage.removeItem('spotify_user_id');
+        localStorage.removeItem('login_pending');
         window.location.href = '/';
     }
 
@@ -82,18 +85,32 @@ class VerszApp {
                 
                 if (data.success) {
                     localStorage.setItem('spotify_user_id', data.user_id);
+                    localStorage.removeItem('login_pending');
                     window.location.href = '/';
                 }
             } catch (error) {
                 console.error('Authentication failed:', error);
+                localStorage.removeItem('login_pending');
             }
         }
     }
 
     async checkExistingSession() {
         const userId = localStorage.getItem('spotify_user_id');
-        if (userId) {
-            await this.handleRouting();
+        const loginPending = localStorage.getItem('login_pending');
+
+        if (userId && !loginPending) {
+            try {
+                const response = await fetch(`${config.backendUrl}/users/${userId}`);
+                if (response.ok) {
+                    await this.handleRouting();
+                    return;
+                }
+            } catch (error) {
+                console.error('Session check failed:', error);
+            }
+            // If we get here, the session is invalid
+            this.logout();
         } else {
             this.showLoginSection();
         }
@@ -101,18 +118,26 @@ class VerszApp {
 
     async handleRouting() {
         const path = window.location.pathname;
-        let viewingUserId = path === '/' ? localStorage.getItem('spotify_user_id') : path.substring(1);
-        
-        // Remove any query parameters or trailing slashes
-        viewingUserId = viewingUserId?.split('?')[0]?.replace(/\/$/, '');
+        const viewingUserId = path === '/' ? localStorage.getItem('spotify_user_id') : path.substring(1);
         
         if (!viewingUserId) {
             this.showLoginSection();
             return;
         }
 
-        const isOwnProfile = viewingUserId === localStorage.getItem('spotify_user_id');
-        await this.showProfileSection(viewingUserId, isOwnProfile);
+        try {
+            const response = await fetch(`${config.backendUrl}/users/${viewingUserId}`);
+            if (!response.ok) {
+                throw new Error('User not found');
+            }
+            const userData = await response.json();
+            
+            const isOwnProfile = viewingUserId === localStorage.getItem('spotify_user_id');
+            await this.showProfileSection(userData, isOwnProfile);
+        } catch (error) {
+            console.error('Failed to load user profile:', error);
+            window.location.href = '/';
+        }
     }
 
     showLoginSection() {
@@ -121,34 +146,42 @@ class VerszApp {
         document.getElementById('user-info').classList.add('hidden');
     }
 
-    async showProfileSection(userId, isOwnProfile) {
-        try {
-            // Verify the user exists first
-            const response = await fetch(`${config.backendUrl}/users/${userId}`);
-            if (!response.ok) {
-                console.error('User not found');
-                this.showLoginSection();
-                return;
-            }
-
-            document.getElementById('login-section').classList.add('hidden');
-            document.getElementById('profile-section').classList.remove('hidden');
+    async showProfileSection(userData, isOwnProfile) {
+        document.getElementById('login-section').classList.add('hidden');
+        document.getElementById('profile-section').classList.remove('hidden');
+        
+        // Update header user info if logged in
+        const loggedInUserId = localStorage.getItem('spotify_user_id');
+        if (loggedInUserId) {
+            const userInfo = document.getElementById('user-info');
+            userInfo.classList.remove('hidden');
             
-            if (isOwnProfile) {
-                document.getElementById('user-info').classList.remove('hidden');
-                document.getElementById('username').textContent = userId;
-                document.getElementById('profile-link').href = `/${userId}`;
+            // Fetch logged-in user data if viewing another profile
+            if (!isOwnProfile) {
+                try {
+                    const response = await fetch(`${config.backendUrl}/users/${loggedInUserId}`);
+                    if (response.ok) {
+                        const loggedInUserData = await response.json();
+                        document.getElementById('username').textContent = loggedInUserData.display_name || loggedInUserData.id;
+                        document.getElementById('user-avatar').src = loggedInUserData.avatar_url || '/api/placeholder/32/32';
+                        document.getElementById('profile-link').href = `/${loggedInUserData.id}`;
+                    }
+                } catch (error) {
+                    console.error('Failed to fetch logged-in user data:', error);
+                }
             } else {
-                document.getElementById('user-info').classList.add('hidden');
+                // Use current userData for own profile
+                document.getElementById('username').textContent = userData.display_name || userData.id;
+                document.getElementById('user-avatar').src = userData.avatar_url || '/api/placeholder/32/32';
+                document.getElementById('profile-link').href = `/${userData.id}`;
             }
-
-            document.getElementById('profile-username').textContent = userId;
-            
-            await this.startTracking(userId);
-        } catch (error) {
-            console.error('Failed to load profile:', error);
-            this.showLoginSection();
         }
+
+        // Update profile section
+        document.getElementById('profile-username').textContent = userData.display_name || userData.id;
+        document.getElementById('profile-avatar').src = userData.avatar_url || '/api/placeholder/150/150';
+        
+        await this.startTracking(userData.id);
     }
 
     async startTracking(userId) {
@@ -167,17 +200,23 @@ class VerszApp {
         this.recentTracksInterval = setInterval(() => this.updateRecentTracks(userId), 120000);
     }
 
-
     async updateCurrentTrack(userId) {
         try {
             const response = await fetch(`${config.backendUrl}/users/${userId}/currently-playing`);
-            const data = await response.json();
+            if (!response.ok) throw new Error('Failed to fetch current track');
             
+            const data = await response.json();
             const currentTrackInfo = document.getElementById('current-track-info');
+            
             if (data.is_playing) {
                 currentTrackInfo.innerHTML = `
-                    <div class="track-name">${data.track_name}</div>
-                    <div class="track-artist">${data.artist_name}</div>
+                    <div class="track-info">
+                        <img src="${data.album_art || '/api/placeholder/64/64'}" alt="Album Art" class="track-artwork">
+                        <div class="track-details">
+                            <div class="track-name">${data.track_name}</div>
+                            <div class="track-artist">${data.artist_name}</div>
+                        </div>
+                    </div>
                 `;
                 currentTrackInfo.classList.add('playing');
             } else {
@@ -192,6 +231,8 @@ class VerszApp {
     async updateRecentTracks(userId) {
         try {
             const response = await fetch(`${config.backendUrl}/users/${userId}/recent-tracks`);
+            if (!response.ok) throw new Error('Failed to fetch recent tracks');
+            
             const tracks = await response.json();
             
             document.getElementById('tracks-count').textContent = tracks.length;
@@ -202,9 +243,12 @@ class VerszApp {
             const tracksList = document.getElementById('tracks-list');
             tracksList.innerHTML = tracks.map(track => `
                 <div class="track-item animate__animated animate__fadeIn">
-                    <div class="track-name">${track.track_name}</div>
-                    <div class="track-artist">${track.artist_name}</div>
-                    <div class="track-time">${this.formatDate(track.played_at)}</div>
+                    <img src="${track.album_art || '/api/placeholder/48/48'}" alt="Album Art" class="track-artwork">
+                    <div class="track-details">
+                        <div class="track-name">${track.track_name}</div>
+                        <div class="track-artist">${track.artist_name}</div>
+                        <div class="track-time">${this.formatDate(track.played_at)}</div>
+                    </div>
                 </div>
             `).join('');
         } catch (error) {
@@ -223,6 +267,5 @@ class VerszApp {
         return date.toLocaleDateString();
     }
 }
-
 
 new VerszApp();
