@@ -10,6 +10,7 @@ import json
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 
+
 load_dotenv()
 
 app = FastAPI()
@@ -83,6 +84,22 @@ async def init_db():
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
         """)
+        
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS liked_songs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT,
+                track_id TEXT,
+                track_name TEXT,
+                artist_name TEXT,
+                album_name TEXT,
+                album_art TEXT,
+                liked_at TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id),
+                UNIQUE(user_id, track_id)
+            )
+        """)
+
         
         await db.commit()
 
@@ -356,9 +373,10 @@ async def update_recent_tracks():
             """
             SELECT spotify_id, access_token, refresh_token 
             FROM users
-            WHERE datetime('now', '-15 minutes') >= COALESCE(last_update, datetime('now', '-1 day'))
+            WHERE datetime('now', '-5 minutes') >= COALESCE(last_update, datetime('now', '-1 day'))
             """
-        )
+        )        
+        
         users = await cursor.fetchall()
         
         async with httpx.AsyncClient() as client:
@@ -475,30 +493,104 @@ async def update_top_items():
                     print(f"Error updating top items for user {user_id}: {str(e)}")
                     continue
 
+@app.get("/users/{user_id}/liked-songs")
+async def get_liked_songs(user_id: str):
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cursor = await db.execute(
+            """
+            SELECT track_id, track_name, artist_name, album_name, album_art, liked_at
+            FROM liked_songs
+            WHERE user_id = ?
+            ORDER BY liked_at DESC
+            """,
+            (user_id,)
+        )
+        songs = await cursor.fetchall()
+        return [
+            {
+                "track_id": song[0],
+                "track_name": song[1],
+                "artist_name": song[2],
+                "album_name": song[3],
+                "album_art": song[4],
+                "liked_at": song[5]
+            }
+            for song in songs
+        ]
+
+@app.post("/users/{user_id}/liked-songs/{track_id}")
+async def toggle_like_song(user_id: str, track_id: str):
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        # Check if song is already liked
+        cursor = await db.execute(
+            "SELECT id FROM liked_songs WHERE user_id = ? AND track_id = ?",
+            (user_id, track_id)
+        )
+        existing = await cursor.fetchone()
+        
+        if existing:
+            # Unlike the song
+            await db.execute(
+                "DELETE FROM liked_songs WHERE user_id = ? AND track_id = ?",
+                (user_id, track_id)
+            )
+        else:
+            # Get track details from recent tracks or top tracks
+            cursor = await db.execute(
+                """
+                SELECT track_name, artist_name, album_name, album_art
+                FROM tracks 
+                WHERE user_id = ? AND track_id = ?
+                UNION
+                SELECT track_name, artist_name, album_name, album_art
+                FROM top_tracks
+                WHERE user_id = ? AND track_id = ?
+                LIMIT 1
+                """,
+                (user_id, track_id, user_id, track_id)
+            )
+            track = await cursor.fetchone()
+            
+            if track:
+                await db.execute(
+                    """
+                    INSERT INTO liked_songs 
+                    (user_id, track_id, track_name, artist_name, album_name, album_art, liked_at)
+                    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+                    """,
+                    (user_id, track_id, track[0], track[1], track[2], track[3])
+                )
+        
+        await db.commit()
+        return {"success": True}
+
+# Update the top tracks and artists endpoints to include track_id
 @app.get("/users/{user_id}/top-tracks")
 async def get_top_tracks(user_id: str):
     async with aiosqlite.connect(DATABASE_PATH) as db:
         cursor = await db.execute(
             """
-            SELECT track_name, artist_name, album_name, album_art, popularity
+            SELECT track_id, track_name, artist_name, album_name, album_art, popularity
             FROM top_tracks
             WHERE user_id = ?
             ORDER BY popularity DESC
             LIMIT 50
             """,
-            (user_id,),
+            (user_id,)
         )
         tracks = await cursor.fetchall()
         return [
             {
-                "track_name": track[0],
-                "artist_name": track[1],
-                "album_name": track[2],
-                "album_art": track[3],
-                "popularity": track[4]
+                "track_id": track[0],
+                "track_name": track[1],
+                "artist_name": track[2],
+                "album_name": track[3],
+                "album_art": track[4],
+                "popularity": track[5]
             }
             for track in tracks
         ]
+
 
 @app.get("/users/{user_id}/top-artists")
 async def get_top_artists(user_id: str):
