@@ -5,7 +5,7 @@ from typing import Optional, List
 import aiosqlite
 import httpx
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
@@ -25,7 +25,7 @@ app.add_middleware(
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 SPOTIFY_REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI")
-DATABASE_PATH = "spotify_tracker.db"
+DATABASE_PATH = "spotify.db"
 
 scheduler = AsyncIOScheduler()
 
@@ -39,7 +39,8 @@ async def init_db():
                 refresh_token TEXT,
                 token_expiry TIMESTAMP,
                 display_name TEXT,
-                avatar_url TEXT
+                avatar_url TEXT,
+                last_update TIMESTAMP
             )
         """)
         
@@ -50,16 +51,46 @@ async def init_db():
                 track_id TEXT,
                 track_name TEXT,
                 artist_name TEXT,
+                album_name TEXT,
                 album_art TEXT,
                 played_at TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
         """)
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS top_tracks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT,
+                track_id TEXT,
+                track_name TEXT,
+                artist_name TEXT,
+                album_name TEXT,
+                album_art TEXT,
+                popularity INTEGER,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        """)
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS top_artists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT,
+                artist_id TEXT,
+                artist_name TEXT,
+                artist_image TEXT,
+                popularity INTEGER,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        """)
+        
         await db.commit()
 
 @app.on_event("startup")
 async def startup_event():
     await init_db()
+    scheduler.add_job(update_recent_tracks, 'interval', minutes=1)
+    scheduler.add_job(update_top_items, 'interval', hours=24)
     scheduler.add_job(health_check, 'interval', minutes=10)
     scheduler.start()
 
@@ -265,41 +296,233 @@ async def search_users(query: str = None):
             detail="An error occurred while searching for users"
         )
 
+
+
+async def refresh_token(user_id: str, refresh_token: str):
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            "https://accounts.spotify.com/api/token",
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "client_id": SPOTIFY_CLIENT_ID,
+                "client_secret": SPOTIFY_CLIENT_SECRET,
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"}
+        )
+        
+        if response.status_code != 200:
+            raise HTTPException(status_code=401, detail="Token refresh failed")
+            
+        token_data = response.json()
+        
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            await db.execute(
+                """
+                UPDATE users 
+                SET access_token = ?, token_expiry = datetime('now', '+1 hour')
+                WHERE spotify_id = ?
+                """,
+                (token_data["access_token"], user_id)
+            )
+            await db.commit()
+            
+        return token_data["access_token"]
+
+async def get_valid_token(user_id: str):
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cursor = await db.execute(
+            """
+            SELECT access_token, refresh_token, token_expiry 
+            FROM users 
+            WHERE spotify_id = ?
+            """,
+            (user_id,)
+        )
+        user = await cursor.fetchone()
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        token_expiry = datetime.strptime(user[2], '%Y-%m-%d %H:%M:%S')
+        
+        if token_expiry <= datetime.now():
+            return await refresh_token(user_id, user[1])
+            
+        return user[0]
 async def update_recent_tracks():
     async with aiosqlite.connect(DATABASE_PATH) as db:
-        cursor = await db.execute("SELECT spotify_id, access_token FROM users")
+        cursor = await db.execute(
+            """
+            SELECT spotify_id, access_token, refresh_token 
+            FROM users
+            WHERE datetime('now', '-15 minutes') >= COALESCE(last_update, datetime('now', '-1 day'))
+            """
+        )
         users = await cursor.fetchall()
         
         async with httpx.AsyncClient() as client:
-            for user_id, access_token in users:
-                response = await client.get(
-                    "https://api.spotify.com/v1/me/player/recently-played",
-                    headers={"Authorization": f"Bearer {access_token}"},
-                )
-                
-                if response.status_code != 200:
-                    continue
-                
-                tracks = response.json()["items"]
-                
-                for track in tracks:
-                    await db.execute(
-                        """
-                        INSERT OR IGNORE INTO tracks
-                        (user_id, track_id, track_name, artist_name, album_art, played_at)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            user_id,
-                            track["track"]["id"],
-                            track["track"]["name"],
-                            track["track"]["artists"][0]["name"],
-                            track["track"]["album"]["images"][0]["url"] if track["track"]["album"]["images"] else None,
-                            track["played_at"],
-                        ),
+            for user_id, access_token, refresh_token in users:
+                try:
+                    # Refresh token if needed
+                    token = await get_valid_token(user_id)
+                    
+                    response = await client.get(
+                        "https://api.spotify.com/v1/me/player/recently-played?limit=50",
+                        headers={"Authorization": f"Bearer {token}"},
                     )
-                
-                await db.commit()
+                    
+                    if response.status_code != 200:
+                        continue
+                    
+                    tracks = response.json()["items"]
+                    
+                    for track in tracks:
+                        await db.execute(
+                            """
+                            INSERT OR REPLACE INTO tracks
+                            (user_id, track_id, track_name, artist_name, album_name, album_art, played_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                user_id,
+                                track["track"]["id"],
+                                track["track"]["name"],
+                                track["track"]["artists"][0]["name"],
+                                track["track"]["album"]["name"],
+                                track["track"]["album"]["images"][0]["url"] if track["track"]["album"]["images"] else None,
+                                track["played_at"],
+                            ),
+                        )
+                    
+                    # Update last_update timestamp
+                    await db.execute(
+                        "UPDATE users SET last_update = datetime('now') WHERE spotify_id = ?",
+                        (user_id,)
+                    )
+                    
+                    await db.commit()
+                    
+                except Exception as e:
+                    print(f"Error updating tracks for user {user_id}: {str(e)}")
+                    continue
+
+async def update_top_items():
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cursor = await db.execute("SELECT spotify_id FROM users")
+        users = await cursor.fetchall()
+        
+        async with httpx.AsyncClient() as client:
+            for (user_id,) in users:
+                try:
+                    token = await get_valid_token(user_id)
+                    
+                    # Get top tracks
+                    tracks_response = await client.get(
+                        "https://api.spotify.com/v1/me/top/tracks?limit=50&time_range=short_term",
+                        headers={"Authorization": f"Bearer {token}"},
+                    )
+                    
+                    if tracks_response.status_code == 200:
+                        await db.execute("DELETE FROM top_tracks WHERE user_id = ?", (user_id,))
+                        
+                        for track in tracks_response.json()["items"]:
+                            await db.execute(
+                                """
+                                INSERT INTO top_tracks
+                                (user_id, track_id, track_name, artist_name, album_name, album_art, popularity)
+                                VALUES (?, ?, ?, ?, ?, ?, ?)
+                                """,
+                                (
+                                    user_id,
+                                    track["id"],
+                                    track["name"],
+                                    track["artists"][0]["name"],
+                                    track["album"]["name"],
+                                    track["album"]["images"][0]["url"] if track["album"]["images"] else None,
+                                    track["popularity"],
+                                ),
+                            )
+                    
+                    # Get top artists
+                    artists_response = await client.get(
+                        "https://api.spotify.com/v1/me/top/artists?limit=50&time_range=short_term",
+                        headers={"Authorization": f"Bearer {token}"},
+                    )
+                    
+                    if artists_response.status_code == 200:
+                        await db.execute("DELETE FROM top_artists WHERE user_id = ?", (user_id,))
+                        
+                        for artist in artists_response.json()["items"]:
+                            await db.execute(
+                                """
+                                INSERT INTO top_artists
+                                (user_id, artist_id, artist_name, artist_image, popularity)
+                                VALUES (?, ?, ?, ?, ?)
+                                """,
+                                (
+                                    user_id,
+                                    artist["id"],
+                                    artist["name"],
+                                    artist["images"][0]["url"] if artist["images"] else None,
+                                    artist["popularity"],
+                                ),
+                            )
+                    
+                    await db.commit()
+                    
+                except Exception as e:
+                    print(f"Error updating top items for user {user_id}: {str(e)}")
+                    continue
+
+@app.get("/users/{user_id}/top-tracks")
+async def get_top_tracks(user_id: str):
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cursor = await db.execute(
+            """
+            SELECT track_name, artist_name, album_name, album_art, popularity
+            FROM top_tracks
+            WHERE user_id = ?
+            ORDER BY popularity DESC
+            LIMIT 50
+            """,
+            (user_id,),
+        )
+        tracks = await cursor.fetchall()
+        return [
+            {
+                "track_name": track[0],
+                "artist_name": track[1],
+                "album_name": track[2],
+                "album_art": track[3],
+                "popularity": track[4]
+            }
+            for track in tracks
+        ]
+
+@app.get("/users/{user_id}/top-artists")
+async def get_top_artists(user_id: str):
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cursor = await db.execute(
+            """
+            SELECT artist_name, artist_image, popularity
+            FROM top_artists
+            WHERE user_id = ?
+            ORDER BY popularity DESC
+            LIMIT 50
+            """,
+            (user_id,),
+        )
+        artists = await cursor.fetchall()
+        return [
+            {
+                "artist_name": artist[0],
+                "artist_image": artist[1],
+                "popularity": artist[2]
+            }
+            for artist in artists
+        ]
+
 
 if __name__ == "__main__":
     import uvicorn
