@@ -14,7 +14,6 @@ load_dotenv()
 
 app = FastAPI()
 
-# CORS configuration for GitHub Pages
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,13 +22,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Spotify API configuration
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 SPOTIFY_REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI")
 DATABASE_PATH = "spotify_tracker.db"
 
-# Initialize scheduler for health check
 scheduler = AsyncIOScheduler()
 
 async def init_db():
@@ -40,7 +37,9 @@ async def init_db():
                 spotify_id TEXT UNIQUE,
                 access_token TEXT,
                 refresh_token TEXT,
-                token_expiry TIMESTAMP
+                token_expiry TIMESTAMP,
+                display_name TEXT,
+                avatar_url TEXT
             )
         """)
         
@@ -51,6 +50,7 @@ async def init_db():
                 track_id TEXT,
                 track_name TEXT,
                 artist_name TEXT,
+                album_art TEXT,
                 played_at TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
@@ -77,8 +77,6 @@ async def health():
 
 @app.get("/auth/callback")
 async def spotify_callback(code: str, request: Request):
-    print(f"Received callback with code: {code}")  # Debug logging
-    
     try:
         async with httpx.AsyncClient() as client:
             # Exchange code for tokens
@@ -91,13 +89,10 @@ async def spotify_callback(code: str, request: Request):
                     "client_id": SPOTIFY_CLIENT_ID,
                     "client_secret": SPOTIFY_CLIENT_SECRET,
                 },
-                headers={
-                    "Content-Type": "application/x-www-form-urlencoded"
-                }
+                headers={"Content-Type": "application/x-www-form-urlencoded"}
             )
             
             if token_response.status_code != 200:
-                print(f"Token response error: {token_response.text}")  # Debug logging
                 raise HTTPException(status_code=400, detail="Failed to get token")
             
             token_data = token_response.json()
@@ -109,38 +104,68 @@ async def spotify_callback(code: str, request: Request):
             )
             
             if user_response.status_code != 200:
-                print(f"User profile error: {user_response.text}")  # Debug logging
                 raise HTTPException(status_code=400, detail="Failed to get user profile")
             
             user_data = user_response.json()
             
-            # Store user data
+            # Store user data with profile information
             async with aiosqlite.connect(DATABASE_PATH) as db:
+                cursor = await db.execute(
+                    "SELECT spotify_id FROM users WHERE spotify_id = ?",
+                    (user_data["id"],)
+                )
+                existing_user = await cursor.fetchone()
+
                 await db.execute(
                     """
-                    INSERT OR REPLACE INTO users (spotify_id, access_token, refresh_token, token_expiry)
-                    VALUES (?, ?, ?, datetime('now', '+1 hour'))
+                    INSERT OR REPLACE INTO users 
+                    (spotify_id, access_token, refresh_token, token_expiry, display_name, avatar_url)
+                    VALUES (?, ?, ?, datetime('now', '+1 hour'), ?, ?)
                     """,
                     (
                         user_data["id"],
                         token_data["access_token"],
                         token_data["refresh_token"],
+                        user_data.get("display_name", user_data["id"]),
+                        user_data.get("images", [{}])[0].get("url", None)
                     ),
                 )
                 await db.commit()
             
-            return {"success": True, "user_id": user_data["id"]}
+            return {
+                "success": True,
+                "user_id": user_data["id"],
+                "is_new_user": not existing_user
+            }
             
     except Exception as e:
-        print(f"Callback error: {str(e)}")  # Debug logging
+        print(f"Callback error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/users/{user_id}")
+async def get_user(user_id: str):
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cursor = await db.execute(
+            "SELECT spotify_id, display_name, avatar_url FROM users WHERE spotify_id = ?",
+            (user_id,)
+        )
+        user = await cursor.fetchone()
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        return {
+            "id": user[0],
+            "display_name": user[1],
+            "avatar_url": user[2]
+        }
 
 @app.get("/users/{user_id}/recent-tracks")
 async def get_recent_tracks(user_id: str):
     async with aiosqlite.connect(DATABASE_PATH) as db:
         cursor = await db.execute(
             """
-            SELECT track_name, artist_name, played_at
+            SELECT track_name, artist_name, played_at, album_art
             FROM tracks
             WHERE user_id = ?
             ORDER BY played_at DESC
@@ -154,6 +179,7 @@ async def get_recent_tracks(user_id: str):
                 "track_name": track[0],
                 "artist_name": track[1],
                 "played_at": track[2],
+                "album_art": track[3]
             }
             for track in tracks
         ]
@@ -187,6 +213,7 @@ async def get_currently_playing(user_id: str):
                 "is_playing": True,
                 "track_name": data["item"]["name"],
                 "artist_name": data["item"]["artists"][0]["name"],
+                "album_art": data["item"]["album"]["images"][0]["url"] if data["item"]["album"]["images"] else None
             }
 
 @app.get("/users/search")
@@ -194,20 +221,19 @@ async def search_users(query: str):
     async with aiosqlite.connect(DATABASE_PATH) as db:
         cursor = await db.execute(
             """
-            SELECT DISTINCT spotify_id 
+            SELECT spotify_id, display_name, avatar_url
             FROM users 
-            WHERE spotify_id LIKE ?
+            WHERE spotify_id LIKE ? OR display_name LIKE ?
             LIMIT 10
             """,
-            (f"%{query}%",)
+            (f"%{query}%", f"%{query}%")
         )
         users = await cursor.fetchall()
-        return [{"id": user[0]} for user in users]
-
-# Background task to update recently played tracks
-@app.on_event("startup")
-async def setup_periodic_update():
-    scheduler.add_job(update_recent_tracks, 'interval', minutes=5)
+        return [{
+            "id": user[0],
+            "display_name": user[1],
+            "avatar_url": user[2]
+        } for user in users]
 
 async def update_recent_tracks():
     async with aiosqlite.connect(DATABASE_PATH) as db:
@@ -230,14 +256,15 @@ async def update_recent_tracks():
                     await db.execute(
                         """
                         INSERT OR IGNORE INTO tracks
-                        (user_id, track_id, track_name, artist_name, played_at)
-                        VALUES (?, ?, ?, ?, ?)
+                        (user_id, track_id, track_name, artist_name, album_art, played_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
                         """,
                         (
                             user_id,
                             track["track"]["id"],
                             track["track"]["name"],
                             track["track"]["artists"][0]["name"],
+                            track["track"]["album"]["images"][0]["url"] if track["track"]["album"]["images"] else None,
                             track["played_at"],
                         ),
                     )
@@ -247,5 +274,3 @@ async def update_recent_tracks():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
-
