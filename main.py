@@ -107,9 +107,11 @@ async def init_db():
 async def startup_event():
     await init_db()
     scheduler.add_job(update_recent_tracks, 'interval', minutes=1)
-    scheduler.add_job(update_top_items, 'interval', hours=24)
+    scheduler.add_job(update_top_items, 'interval', hours=1)  # More frequent updates
     scheduler.add_job(health_check, 'interval', minutes=10)
     scheduler.start()
+
+
 
 async def health_check():
     async with httpx.AsyncClient() as client:
