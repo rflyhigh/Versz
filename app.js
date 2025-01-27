@@ -3,6 +3,11 @@ class VerszApp {
         this.currentTrackInterval = null;
         this.recentTracksInterval = null;
         this.searchDebounceTimeout = null;
+        this.dataCache = {
+            recentTracks: [],
+            topTracks: [],
+            topArtists: []
+        };
         
         const redirectPath = sessionStorage.getItem('redirect_path');
         if (redirectPath) {
@@ -18,29 +23,48 @@ class VerszApp {
     }
 
     setupEventListeners() {
-        // Auth related events
         document.getElementById('login-btn')?.addEventListener('click', () => this.login());
         document.getElementById('logout-btn')?.addEventListener('click', () => this.logout());
-        
-        // Navigation events
         window.addEventListener('popstate', () => this.handleRouting());
         
-        // Prevent form submission
         document.querySelectorAll('form').forEach(form => 
             form.addEventListener('submit', (e) => e.preventDefault())
         );
 
-        // Click outside search results to close
         document.addEventListener('click', (e) => {
             if (!e.target.closest('#search-container')) {
                 this.hideSearchResults();
             }
         });
 
-        // Error message auto-dismiss
+        // Add tab switching functionality
+        const tabs = document.querySelectorAll('.tab-button');
+        tabs.forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                const targetId = e.target.dataset.target;
+                this.switchTab(targetId);
+            });
+        });
+
         document.querySelectorAll('.error-message').forEach(error => {
             error.addEventListener('click', () => error.classList.add('hidden'));
         });
+    }
+
+    switchTab(targetId) {
+        // Hide all tab contents
+        document.querySelectorAll('.tab-content').forEach(content => {
+            content.classList.add('hidden');
+        });
+        
+        // Deactivate all tab buttons
+        document.querySelectorAll('.tab-button').forEach(button => {
+            button.classList.remove('active');
+        });
+        
+        // Show selected tab content and activate button
+        document.getElementById(targetId)?.classList.remove('hidden');
+        document.querySelector(`[data-target="${targetId}"]`)?.classList.add('active');
     }
 
     setupSearch() {
@@ -88,20 +112,16 @@ class VerszApp {
         if (!searchResults) return;
     
         try {
-            // Add error handling for empty query
             if (!query.trim()) {
                 this.hideSearchResults();
                 return;
             }
     
             const response = await fetch(`${config.backendUrl}/users/search?query=${encodeURIComponent(query.trim())}`);
-            if (!response.ok) {
-                throw new Error(`Search failed: ${response.status}`);
-            }
+            if (!response.ok) throw new Error(`Search failed: ${response.status}`);
             
             const users = await response.json();
             
-            // Always show the container, even for no results
             searchResults.classList.remove('hidden');
             
             if (users.length === 0) {
@@ -119,11 +139,6 @@ class VerszApp {
                              onerror="this.src='/api/placeholder/32/32'">
                         <div class="search-user-info">
                             <div class="search-username">${this.escapeHtml(user.display_name || user.id)}</div>
-                            ${user.currently_playing ? `
-                                <div class="search-now-playing">
-                                    <i class="fas fa-music"></i> ${this.escapeHtml(user.currently_playing)}
-                                </div>
-                            ` : ''}
                         </div>
                     </div>
                 `).join('');
@@ -139,7 +154,6 @@ class VerszApp {
         }
     }
     
-    // Add this helper method to the class
     escapeHtml(unsafe) {
         return unsafe
             .replace(/&/g, "&amp;")
@@ -311,22 +325,29 @@ class VerszApp {
 
         this.updateProfileInfo(userData);
         await this.startTracking(userData.id);
+        
+        // Show Recent Tracks tab by default
+        this.switchTab('recent-tracks');
     }
 
     updateUserInfo(userData) {
-        document.getElementById('username').textContent = userData.display_name || userData.id;
-        document.getElementById('user-avatar').src = userData.avatar_url || '/api/placeholder/32/32';
-        document.getElementById('profile-link').href = `/${userData.id}`;
+        const username = document.getElementById('username');
+        const userAvatar = document.getElementById('user-avatar');
+        const profileLink = document.getElementById('profile-link');
+        
+        if (username) username.textContent = userData.display_name || userData.id;
+        if (userAvatar) userAvatar.src = userData.avatar_url || '/api/placeholder/32/32';
+        if (profileLink) profileLink.href = `/${userData.id}`;
     }
 
     updateProfileInfo(userData) {
-        document.getElementById('profile-username').textContent = userData.display_name || userData.id;
-        document.getElementById('profile-avatar').src = userData.avatar_url || '/api/placeholder/96/96';
+        const profileUsername = document.getElementById('profile-username');
+        const profileAvatar = document.getElementById('profile-avatar');
+        
+        if (profileUsername) profileUsername.textContent = userData.display_name || userData.id;
+        if (profileAvatar) profileAvatar.src = userData.avatar_url || '/api/placeholder/96/96';
         document.title = `${userData.display_name || userData.id} - versz`;
     }
-
-    
-    
 
     async startTracking(userId) {
         this.clearIntervals();
@@ -341,22 +362,27 @@ class VerszApp {
         this.currentTrackInterval = setInterval(() => this.updateCurrentTrack(userId), 30000);
         this.recentTracksInterval = setInterval(() => this.updateRecentTracks(userId), 60000);
     }
+
     async updateCurrentTrack(userId) {
+        const currentTrackInfo = document.getElementById('current-track-info');
+        if (!currentTrackInfo) return;
+        
         try {
             const response = await fetch(`${config.backendUrl}/users/${userId}/currently-playing`);
             if (!response.ok) throw new Error('Failed to fetch current track');
             
             const data = await response.json();
-            const currentTrackInfo = document.getElementById('current-track-info');
             
             if (data.is_playing) {
                 currentTrackInfo.innerHTML = `
                     <div class="track-info">
-                        <img src="${data.album_art || '/api/placeholder/64/64'}" alt="Album Art" class="track-artwork">
+                        <img src="${data.album_art || '/api/placeholder/64/64'}" 
+                             alt="Album Art" 
+                             class="track-artwork"
+                             onerror="this.src='/api/placeholder/64/64'">
                         <div class="track-details">
-                            <div class="track-name">${data.track_name}</div>
-                            <div class="track-artist">${data.artist_name}</div>
-                            <div class="track-album">${data.album_name}</div>
+                            <div class="track-name">${this.escapeHtml(data.track_name)}</div>
+                            <div class="track-artist">${this.escapeHtml(data.artist_name)}</div>
                         </div>
                     </div>
                 `;
@@ -372,82 +398,132 @@ class VerszApp {
             }
         } catch (error) {
             console.error('Failed to update current track:', error);
+            currentTrackInfo.innerHTML = `
+                <div class="placeholder-text">
+                    <i class="fas fa-exclamation-circle"></i>
+                    Unable to fetch current track
+                </div>
+            `;
         }
     }
 
-
     async updateRecentTracks(userId) {
+        const tracksList = document.getElementById('tracks-list');
+        const tracksCount = document.getElementById('tracks-count');
+        
+        if (!tracksList || !tracksCount) return;
+        
         try {
             const response = await fetch(`${config.backendUrl}/users/${userId}/recent-tracks`);
             if (!response.ok) throw new Error('Failed to fetch recent tracks');
             
             const tracks = await response.json();
+            this.dataCache.recentTracks = tracks;
             
-            document.getElementById('tracks-count').textContent = tracks.length;
+            tracksCount.textContent = tracks.length;
             
-            const tracksList = document.getElementById('tracks-list');
             tracksList.innerHTML = tracks.map(track => `
-                <div class="track-item animate__animated animate__fadeIn">
-                    <img src="${track.album_art || '/api/placeholder/48/48'}" alt="Album Art" class="track-artwork">
-                    <div class="track-details">
-                        <div class="track-name">${track.track_name}</div>
-                        <div class="track-artist">${track.artist_name}</div>
-                        <div class="track-album">${track.album_name}</div>
-                        <div class="track-time">${this.formatDate(track.played_at)}</div>
-                    </div>
+                <div class="track-item">
+                    <img src="${track.album_art || '/api/placeholder/48/48'}" alt="Album Art" 
+                class="track-artwork"
+                onerror="this.src='/api/placeholder/48/48'">
+                <div class="track-details">
+                    <div class="track-name">${this.escapeHtml(track.track_name)}</div>
+                    <div class="track-artist">${this.escapeHtml(track.artist_name)}</div>
+                    <div class="track-time">${this.formatDate(track.played_at)}</div>
                 </div>
-            `).join('');
+            </div>
+        `).join('');
         } catch (error) {
             console.error('Failed to update recent tracks:', error);
+            tracksList.innerHTML = `
+                <div class="placeholder-text">
+                    <i class="fas fa-exclamation-circle"></i>
+                    Unable to fetch recent tracks
+                </div>
+            `;
+            tracksCount.textContent = '0';
         }
     }
 
     async updateTopTracks(userId) {
+        const topTracksList = document.getElementById('top-tracks-list');
+        const topTracksCount = document.getElementById('top-tracks-count');
+        
+        if (!topTracksList || !topTracksCount) return;
+        
         try {
             const response = await fetch(`${config.backendUrl}/users/${userId}/top-tracks`);
             if (!response.ok) throw new Error('Failed to fetch top tracks');
             
             const tracks = await response.json();
+            this.dataCache.topTracks = tracks;
             
-            const topTracksList = document.getElementById('top-tracks-list');
+            topTracksCount.textContent = tracks.length;
+            
             topTracksList.innerHTML = tracks.map((track, index) => `
-                <div class="track-item animate__animated animate__fadeIn">
+                <div class="track-item">
                     <div class="track-rank">${index + 1}</div>
-                    <img src="${track.album_art || '/api/placeholder/48/48'}" alt="Album Art" class="track-artwork">
+                    <img src="${track.album_art || '/api/placeholder/48/48'}" 
+                         alt="Album Art" 
+                         class="track-artwork"
+                         onerror="this.src='/api/placeholder/48/48'">
                     <div class="track-details">
-                        <div class="track-name">${track.track_name}</div>
-                        <div class="track-artist">${track.artist_name}</div>
-                        <div class="track-album">${track.album_name}</div>
+                        <div class="track-name">${this.escapeHtml(track.track_name)}</div>
+                        <div class="track-artist">${this.escapeHtml(track.artist_name)}</div>
+                        <div class="track-popularity">Popularity: ${track.popularity}%</div>
                     </div>
                 </div>
             `).join('');
         } catch (error) {
             console.error('Failed to update top tracks:', error);
+            topTracksList.innerHTML = `
+                <div class="placeholder-text">
+                    <i class="fas fa-exclamation-circle"></i>
+                    Unable to fetch top tracks
+                </div>
+            `;
+            topTracksCount.textContent = '0';
         }
     }
 
     async updateTopArtists(userId) {
+        const topArtistsList = document.getElementById('top-artists-list');
+        const topArtistsCount = document.getElementById('top-artists-count');
+        
+        if (!topArtistsList || !topArtistsCount) return;
+        
         try {
             const response = await fetch(`${config.backendUrl}/users/${userId}/top-artists`);
             if (!response.ok) throw new Error('Failed to fetch top artists');
             
             const artists = await response.json();
+            this.dataCache.topArtists = artists;
             
-            document.getElementById('artists-count').textContent = artists.length;
+            topArtistsCount.textContent = artists.length;
             
-            const topArtistsList = document.getElementById('top-artists-list');
             topArtistsList.innerHTML = artists.map((artist, index) => `
-                <div class="artist-item animate__animated animate__fadeIn">
+                <div class="artist-item">
                     <div class="artist-rank">${index + 1}</div>
-                    <img src="${artist.artist_image || '/api/placeholder/64/64'}" alt="Artist" class="artist-artwork">
+                    <img src="${artist.artist_image || '/api/placeholder/64/64'}" 
+                         alt="Artist" 
+                         class="artist-artwork"
+                         onerror="this.src='/api/placeholder/64/64'">
                     <div class="artist-details">
-                        <div class="artist-name">${artist.artist_name}</div>
+                        <div class="artist-name">${this.escapeHtml(artist.artist_name)}</div>
                         <div class="artist-popularity">Popularity: ${artist.popularity}%</div>
                     </div>
                 </div>
             `).join('');
         } catch (error) {
             console.error('Failed to update top artists:', error);
+            topArtistsList.innerHTML = `
+                <div class="placeholder-text">
+                    <i class="fas fa-exclamation-circle"></i>
+                    Unable to fetch top artists
+                </div>
+            `;
+            topArtistsCount.textContent = '0';
         }
     }
 
@@ -468,12 +544,15 @@ class VerszApp {
         errorContainer.className = 'error-message animate__animated animate__fadeIn';
         errorContainer.textContent = message;
         
-        document.getElementById('error-container').appendChild(errorContainer);
-        
-        setTimeout(() => {
-            errorContainer.classList.add('animate__fadeOut');
-            setTimeout(() => errorContainer.remove(), 300);
-        }, 5000);
+        const container = document.getElementById('error-container');
+        if (container) {
+            container.appendChild(errorContainer);
+            
+            setTimeout(() => {
+                errorContainer.classList.add('animate__fadeOut');
+                setTimeout(() => errorContainer.remove(), 300);
+            }, 5000);
+        }
     }
 }
 
