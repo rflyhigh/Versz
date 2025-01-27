@@ -1,25 +1,70 @@
-class SpotifyTracker {
+// app.js
+class VerszApp {
     constructor() {
         this.setupEventListeners();
         this.checkAuthCallback();
         this.checkExistingSession();
+        this.setupSearch();
+        this.handleRouting();
     }
 
     setupEventListeners() {
-        document.getElementById('login-btn').addEventListener('click', () => this.login());
-        document.getElementById('logout-btn').addEventListener('click', () => this.logout());
+        document.getElementById('login-btn')?.addEventListener('click', () => this.login());
+        document.getElementById('logout-btn')?.addEventListener('click', () => this.logout());
+        window.addEventListener('popstate', () => this.handleRouting());
+    }
+
+    setupSearch() {
+        const searchInput = document.getElementById('user-search');
+        const searchResults = document.getElementById('search-results');
+
+        searchInput?.addEventListener('input', async (e) => {
+            const query = e.target.value.trim();
+            if (query.length < 2) {
+                searchResults.classList.add('hidden');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${config.backendUrl}/users/search?query=${encodeURIComponent(query)}`);
+                const users = await response.json();
+                
+                searchResults.innerHTML = users.map(user => `
+                    <div class="search-result-item" data-userid="${user.id}">
+                        ${user.id}
+                    </div>
+                `).join('');
+                
+                searchResults.classList.remove('hidden');
+            } catch (error) {
+                console.error('Search failed:', error);
+            }
+        });
+
+        searchResults?.addEventListener('click', (e) => {
+            const userItem = e.target.closest('.search-result-item');
+            if (userItem) {
+                const userId = userItem.dataset.userid;
+                window.location.href = `/${userId}`;
+            }
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('#search-container')) {
+                searchResults?.classList.add('hidden');
+            }
+        });
     }
 
     login() {
-    
-        const redirectUri = 'https://versz.fun/callback.html';
+        const redirectUri = `${window.location.origin}/callback.html`;
         const authUrl = `https://accounts.spotify.com/authorize?client_id=${config.clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(config.scopes)}`;
         window.location.href = authUrl;
     }
 
     logout() {
         localStorage.removeItem('spotify_user_id');
-        this.showLoginSection();
+        window.location.href = '/';
     }
 
     async checkAuthCallback() {
@@ -41,14 +86,26 @@ class SpotifyTracker {
         }
     }
 
-    checkExistingSession() {
+    async checkExistingSession() {
         const userId = localStorage.getItem('spotify_user_id');
         if (userId) {
-            this.showProfileSection(userId);
-            this.startTracking(userId);
+            await this.handleRouting();
         } else {
             this.showLoginSection();
         }
+    }
+
+    async handleRouting() {
+        const path = window.location.pathname;
+        const viewingUserId = path === '/' ? localStorage.getItem('spotify_user_id') : path.substring(1);
+        
+        if (!viewingUserId) {
+            this.showLoginSection();
+            return;
+        }
+
+        const isOwnProfile = viewingUserId === localStorage.getItem('spotify_user_id');
+        await this.showProfileSection(viewingUserId, isOwnProfile);
     }
 
     showLoginSection() {
@@ -57,18 +114,37 @@ class SpotifyTracker {
         document.getElementById('user-info').classList.add('hidden');
     }
 
-    showProfileSection(userId) {
+    async showProfileSection(userId, isOwnProfile) {
         document.getElementById('login-section').classList.add('hidden');
         document.getElementById('profile-section').classList.remove('hidden');
-        document.getElementById('user-info').classList.remove('hidden');
-        document.getElementById('username').textContent = `User: ${userId}`;
+        
+        if (isOwnProfile) {
+            document.getElementById('user-info').classList.remove('hidden');
+            document.getElementById('username').textContent = userId;
+            document.getElementById('profile-link').href = `/${userId}`;
+        } else {
+            document.getElementById('user-info').classList.add('hidden');
+        }
+
+        document.getElementById('profile-username').textContent = userId;
+        
+        await this.startTracking(userId);
     }
 
     async startTracking(userId) {
         await this.updateCurrentTrack(userId);
         await this.updateRecentTracks(userId);
-        setInterval(() => this.updateCurrentTrack(userId), 30000);
-        setInterval(() => this.updateRecentTracks(userId), 120000);
+        
+        if (this.currentTrackInterval) {
+            clearInterval(this.currentTrackInterval);
+        }
+        
+        if (this.recentTracksInterval) {
+            clearInterval(this.recentTracksInterval);
+        }
+        
+        this.currentTrackInterval = setInterval(() => this.updateCurrentTrack(userId), 30000);
+        this.recentTracksInterval = setInterval(() => this.updateRecentTracks(userId), 120000);
     }
 
     async updateCurrentTrack(userId) {
@@ -82,8 +158,10 @@ class SpotifyTracker {
                     <div class="track-name">${data.track_name}</div>
                     <div class="track-artist">${data.artist_name}</div>
                 `;
+                currentTrackInfo.classList.add('playing');
             } else {
-                currentTrackInfo.innerHTML = '<p>Not playing anything right now</p>';
+                currentTrackInfo.innerHTML = '<div class="placeholder-text">Not playing anything right now</div>';
+                currentTrackInfo.classList.remove('playing');
             }
         } catch (error) {
             console.error('Failed to update current track:', error);
@@ -95,9 +173,14 @@ class SpotifyTracker {
             const response = await fetch(`${config.backendUrl}/users/${userId}/recent-tracks`);
             const tracks = await response.json();
             
+            document.getElementById('tracks-count').textContent = tracks.length;
+            
+            const artists = new Set(tracks.map(track => track.artist_name));
+            document.getElementById('artists-count').textContent = artists.size;
+            
             const tracksList = document.getElementById('tracks-list');
             tracksList.innerHTML = tracks.map(track => `
-                <div class="track-item">
+                <div class="track-item animate__animated animate__fadeIn">
                     <div class="track-name">${track.track_name}</div>
                     <div class="track-artist">${track.artist_name}</div>
                     <div class="track-time">${this.formatDate(track.played_at)}</div>
@@ -110,8 +193,15 @@ class SpotifyTracker {
 
     formatDate(dateString) {
         const date = new Date(dateString);
-        return date.toLocaleString();
+        const now = new Date();
+        const diff = Math.floor((now - date) / 1000);
+        
+        if (diff < 60) return 'Just now';
+        if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+        if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+        return date.toLocaleDateString();
     }
 }
 
-new SpotifyTracker();
+
+new VerszApp();
