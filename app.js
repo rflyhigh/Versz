@@ -4,7 +4,6 @@ class VerszApp {
         this.recentTracksInterval = null;
         this.searchDebounceTimeout = null;
         
-        // Handle GitHub Pages redirect
         const redirectPath = sessionStorage.getItem('redirect_path');
         if (redirectPath) {
             sessionStorage.removeItem('redirect_path');
@@ -326,18 +325,22 @@ class VerszApp {
         document.title = `${userData.display_name || userData.id} - versz`;
     }
 
+    
+    
+
     async startTracking(userId) {
         this.clearIntervals();
         
         await Promise.all([
             this.updateCurrentTrack(userId),
-            this.updateRecentTracks(userId)
+            this.updateRecentTracks(userId),
+            this.updateTopTracks(userId),
+            this.updateTopArtists(userId)
         ]);
         
         this.currentTrackInterval = setInterval(() => this.updateCurrentTrack(userId), 30000);
-        this.recentTracksInterval = setInterval(() => this.updateRecentTracks(userId), 120000);
+        this.recentTracksInterval = setInterval(() => this.updateRecentTracks(userId), 60000);
     }
-
     async updateCurrentTrack(userId) {
         try {
             const response = await fetch(`${config.backendUrl}/users/${userId}/currently-playing`);
@@ -372,6 +375,7 @@ class VerszApp {
         }
     }
 
+
     async updateRecentTracks(userId) {
         try {
             const response = await fetch(`${config.backendUrl}/users/${userId}/recent-tracks`);
@@ -381,9 +385,6 @@ class VerszApp {
             
             document.getElementById('tracks-count').textContent = tracks.length;
             
-            const artists = new Set(tracks.map(track => track.artist_name));
-            document.getElementById('artists-count').textContent = artists.size;
-            
             const tracksList = document.getElementById('tracks-list');
             tracksList.innerHTML = tracks.map(track => `
                 <div class="track-item animate__animated animate__fadeIn">
@@ -391,12 +392,62 @@ class VerszApp {
                     <div class="track-details">
                         <div class="track-name">${track.track_name}</div>
                         <div class="track-artist">${track.artist_name}</div>
+                        <div class="track-album">${track.album_name}</div>
                         <div class="track-time">${this.formatDate(track.played_at)}</div>
                     </div>
                 </div>
             `).join('');
         } catch (error) {
             console.error('Failed to update recent tracks:', error);
+        }
+    }
+
+    async updateTopTracks(userId) {
+        try {
+            const response = await fetch(`${config.backendUrl}/users/${userId}/top-tracks`);
+            if (!response.ok) throw new Error('Failed to fetch top tracks');
+            
+            const tracks = await response.json();
+            
+            const topTracksList = document.getElementById('top-tracks-list');
+            topTracksList.innerHTML = tracks.map((track, index) => `
+                <div class="track-item animate__animated animate__fadeIn">
+                    <div class="track-rank">${index + 1}</div>
+                    <img src="${track.album_art || '/api/placeholder/48/48'}" alt="Album Art" class="track-artwork">
+                    <div class="track-details">
+                        <div class="track-name">${track.track_name}</div>
+                        <div class="track-artist">${track.artist_name}</div>
+                        <div class="track-album">${track.album_name}</div>
+                    </div>
+                </div>
+            `).join('');
+        } catch (error) {
+            console.error('Failed to update top tracks:', error);
+        }
+    }
+
+    async updateTopArtists(userId) {
+        try {
+            const response = await fetch(`${config.backendUrl}/users/${userId}/top-artists`);
+            if (!response.ok) throw new Error('Failed to fetch top artists');
+            
+            const artists = await response.json();
+            
+            document.getElementById('artists-count').textContent = artists.length;
+            
+            const topArtistsList = document.getElementById('top-artists-list');
+            topArtistsList.innerHTML = artists.map((artist, index) => `
+                <div class="artist-item animate__animated animate__fadeIn">
+                    <div class="artist-rank">${index + 1}</div>
+                    <img src="${artist.artist_image || '/api/placeholder/64/64'}" alt="Artist" class="artist-artwork">
+                    <div class="artist-details">
+                        <div class="artist-name">${artist.artist_name}</div>
+                        <div class="artist-popularity">Popularity: ${artist.popularity}%</div>
+                    </div>
+                </div>
+            `).join('');
+        } catch (error) {
+            console.error('Failed to update top artists:', error);
         }
     }
 
