@@ -77,10 +77,15 @@ async def health():
 
 
 @app.post("/auth/callback")
-async def spotify_callback(code: str, request: Request):
+async def spotify_callback(request: Request):
     try:
+        # Get the request body
         request_data = await request.json()
+        code = request_data.get('code')
         redirect_uri = request_data.get('redirect_uri', SPOTIFY_REDIRECT_URI)
+        
+        if not code:
+            raise HTTPException(status_code=400, detail="Code parameter is required")
         
         async with httpx.AsyncClient() as client:
             # Exchange code for tokens
