@@ -1,9 +1,13 @@
+/* styles.css */
 :root {
-    --spotify-green: #1DB954;
-    --background-dark: #121212;
-    --background-light: #282828;
-    --text-primary: #FFFFFF;
-    --text-secondary: #B3B3B3;
+    --primary: #1DB954;
+    --primary-dark: #1aa34a;
+    --background: #0f0f0f;
+    --surface: #1e1e1e;
+    --surface-light: #2a2a2a;
+    --text: #ffffff;
+    --text-secondary: #b3b3b3;
+    --gradient: linear-gradient(135deg, #1DB954 0%, #1aa34a 100%);
 }
 
 * {
@@ -13,73 +17,214 @@
 }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-    background-color: var(--background-dark);
-    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: var(--background);
+    color: var(--text);
     line-height: 1.5;
 }
 
-.container {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 2rem;
+.navbar {
+    background-color: rgba(30, 30, 30, 0.95);
+    backdrop-filter: blur(10px);
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-header {
+.nav-content {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 1rem;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 2rem;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid var(--background-light);
+}
+
+.logo {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: var(--text);
+    text-decoration: none;
+    background: var(--gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.nav-right {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+}
+
+#search-container {
+    position: relative;
+}
+
+#user-search {
+    background: var(--surface-light);
+    border: none;
+    border-radius: 20px;
+    padding: 0.5rem 1rem;
+    color: var(--text);
+    width: 200px;
+    transition: width 0.3s ease;
+}
+
+#user-search:focus {
+    width: 300px;
+    outline: none;
+    background: var(--surface);
+}
+
+#search-results {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--surface);
+    border-radius: 8px;
+    margin-top: 0.5rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.search-result-item {
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.search-result-item:hover {
+    background: var(--surface-light);
+}
+
+main {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 5rem 1rem 2rem;
 }
 
 .center {
+    min-height: 80vh;
     display: flex;
-    justify-content: center;
     align-items: center;
-    min-height: 50vh;
+    justify-content: center;
+    text-align: center;
+}
+
+.login-container {
+    max-width: 400px;
+    padding: 2rem;
+}
+
+.login-container h1 {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+    background: var(--gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.login-container p {
+    color: var(--text-secondary);
+    margin-bottom: 2rem;
 }
 
 .spotify-btn {
-    background-color: var(--spotify-green);
+    background: var(--primary);
     color: white;
     border: none;
     padding: 1rem 2rem;
     border-radius: 50px;
     font-size: 1.1rem;
     cursor: pointer;
-    transition: transform 0.2s;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 0 auto;
 }
 
 .spotify-btn:hover {
-    transform: scale(1.05);
+    background: var(--primary-dark);
+    transform: translateY(-2px);
 }
 
-.hidden {
-    display: none !important;
-}
-
-#user-info {
+.profile-header {
     display: flex;
     align-items: center;
-    gap: 1rem;
+    gap: 2rem;
+    margin-bottom: 3rem;
+    padding: 2rem;
+    background: var(--surface);
+    border-radius: 16px;
 }
 
-#logout-btn {
-    background-color: transparent;
+#profile-avatar {
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.profile-info {
+    flex: 1;
+}
+
+.stats {
+    display: flex;
+    gap: 2rem;
+    margin-top: 1rem;
+}
+
+.stat {
+    text-align: center;
+}
+
+.stat span {
+    display: block;
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: var(--primary);
+}
+
+.stat label {
     color: var(--text-secondary);
-    border: 1px solid var(--text-secondary);
-    padding: 0.5rem 1rem;
-    border-radius: 20px;
-    cursor: pointer;
+    font-size: 0.9rem;
 }
 
 .track-card {
-    background-color: var(--background-light);
+    background: var(--surface);
+    border-radius: 16px;
     padding: 1.5rem;
-    border-radius: 8px;
     margin-bottom: 2rem;
+}
+
+.card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+}
+
+.live-indicator {
+    background: var(--primary);
+    color: white;
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: bold;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
 }
 
 #tracks-list {
@@ -89,28 +234,59 @@ header {
 }
 
 .track-item {
-    background-color: var(--background-light);
+    background: var(--surface);
     padding: 1rem;
-    border-radius: 8px;
+    border-radius: 12px;
     transition: transform 0.2s;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
 }
 
 .track-item:hover {
     transform: translateY(-2px);
+    background: var(--surface-light);
 }
 
 .track-name {
     font-weight: bold;
-    margin-bottom: 0.5rem;
 }
 
 .track-artist {
     color: var(--text-secondary);
-    font-size: 0.9rem;
 }
 
 .track-time {
     color: var(--text-secondary);
     font-size: 0.8rem;
-    margin-top: 0.5rem;
+    margin-top: auto;
+}
+
+@media (max-width: 768px) {
+    .profile-header {
+        flex-direction: column;
+        text-align: center;
+        padding: 1rem;
+    }
+
+    .stats {
+        justify-content: center;
+    }
+
+    #search-container {
+        display: none;
+    }
+
+    .track-card {
+        margin: 1rem;
+    }
+
+    #tracks-list {
+        grid-template-columns: 1fr;
+        padding: 1rem;
+    }
+}
+
+.hidden {
+    display: none !important;
 }
