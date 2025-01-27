@@ -29,13 +29,14 @@ REQUEST_TIMEOUT = 30.0  # 30 seconds timeout for external requests
 MAX_RETRIES = 3
 RETRY_DELAY = 1
 
-# Database connection pool
+
 class DatabasePool:
     def __init__(self):
         self._pool = []
         self._semaphore = asyncio.Semaphore(5)  # Limit to 5 concurrent connections
 
-    async def get_connection(self) -> AsyncGenerator[aiosqlite.Connection, None]:
+    @asynccontextmanager
+    async def get_connection(self):
         async with self._semaphore:
             if not self._pool:
                 conn = await aiosqlite.connect(DATABASE_PATH)
@@ -52,43 +53,10 @@ class DatabasePool:
             conn = self._pool.pop()
             await conn.close()
 
+# Initialize the database pool
 db_pool = DatabasePool()
 
-# Initialize FastAPI app with lifespan
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup
-    await init_db()
-    scheduler.add_job(update_recent_tracks, 'interval', minutes=5)
-    scheduler.add_job(update_top_items, 'interval', hours=1)
-    scheduler.add_job(health_check, 'interval', minutes=10)
-    scheduler.start()
-    
-    yield
-    
-    # Shutdown
-    scheduler.shutdown()
-    await db_pool.close_all()
-
-app = FastAPI(lifespan=lifespan)
-
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-scheduler = AsyncIOScheduler()
-
-# HTTP client with connection pooling
-async def get_http_client() -> AsyncGenerator[httpx.AsyncClient, None]:
-    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-        yield client
-
-# Database initialization
+# Database initialization function
 async def init_db():
     async with db_pool.get_connection() as db:
         await db.execute("""
@@ -160,6 +128,41 @@ async def init_db():
         """)
         
         await db.commit()
+
+# Update the lifespan handler
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    await init_db()
+    scheduler.add_job(update_recent_tracks, 'interval', minutes=5)
+    scheduler.add_job(update_top_items, 'interval', hours=1)
+    scheduler.add_job(health_check, 'interval', minutes=10)
+    scheduler.start()
+    
+    yield
+    
+    # Shutdown
+    scheduler.shutdown()
+    await db_pool.close_all()
+
+app = FastAPI(lifespan=lifespan)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+scheduler = AsyncIOScheduler()
+
+# HTTP client with connection pooling
+async def get_http_client() -> AsyncGenerator[httpx.AsyncClient, None]:
+    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+        yield client
+
 
 # Utility functions
 async def make_spotify_request(client: httpx.AsyncClient, method: str, url: str, 
