@@ -87,12 +87,23 @@ class VerszApp {
     async performSearch(query) {
         const searchResults = document.getElementById('search-results');
         if (!searchResults) return;
-
+    
         try {
-            const response = await fetch(`${config.backendUrl}/users/search?query=${encodeURIComponent(query)}`);
-            if (!response.ok) throw new Error('Search failed');
+            // Add error handling for empty query
+            if (!query.trim()) {
+                this.hideSearchResults();
+                return;
+            }
+    
+            const response = await fetch(`${config.backendUrl}/users/search?query=${encodeURIComponent(query.trim())}`);
+            if (!response.ok) {
+                throw new Error(`Search failed: ${response.status}`);
+            }
             
             const users = await response.json();
+            
+            // Always show the container, even for no results
+            searchResults.classList.remove('hidden');
             
             if (users.length === 0) {
                 searchResults.innerHTML = `
@@ -103,24 +114,40 @@ class VerszApp {
             } else {
                 searchResults.innerHTML = users.map(user => `
                     <div class="search-result-item" data-userid="${user.id}">
-                        <img src="${user.avatar_url || '/api/placeholder/32/32'}" alt="Avatar" class="search-avatar">
+                        <img src="${user.avatar_url || '/api/placeholder/32/32'}" 
+                             alt="Avatar" 
+                             class="search-avatar"
+                             onerror="this.src='/api/placeholder/32/32'">
                         <div class="search-user-info">
-                            <div class="search-username">${user.display_name || user.id}</div>
+                            <div class="search-username">${this.escapeHtml(user.display_name || user.id)}</div>
                             ${user.currently_playing ? `
                                 <div class="search-now-playing">
-                                    <i class="fas fa-music"></i> ${user.currently_playing}
+                                    <i class="fas fa-music"></i> ${this.escapeHtml(user.currently_playing)}
                                 </div>
                             ` : ''}
                         </div>
                     </div>
                 `).join('');
             }
-            
-            searchResults.classList.remove('hidden');
         } catch (error) {
             console.error('Search failed:', error);
-            this.showError('Failed to search users. Please try again.');
+            searchResults.innerHTML = `
+                <div class="search-result-item">
+                    <div class="placeholder-text">Search failed. Please try again.</div>
+                </div>
+            `;
+            searchResults.classList.remove('hidden');
         }
+    }
+    
+    // Add this helper method to the class
+    escapeHtml(unsafe) {
+        return unsafe
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
     }
 
     login() {
