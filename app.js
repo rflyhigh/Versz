@@ -356,39 +356,11 @@ class VerszApp {
             this.updateCurrentTrack(userId),
             this.updateRecentTracks(userId),
             this.updateTopTracks(userId),
-            this.updateTopArtists(userId),
-            this.updateLikedSongs(userId)
+            this.updateTopArtists(userId)
         ]);
         
-        // More frequent updates
-        this.currentTrackInterval = setInterval(() => this.updateCurrentTrack(userId), this.pollInterval);
-        this.recentTracksInterval = setInterval(() => this.updateRecentTracks(userId), this.recentTracksInterval);
-    }
-
-    async updateLikedSongs(userId) {
-        try {
-            const response = await fetch(`${config.backendUrl}/users/${userId}/liked-songs`);
-            if (!response.ok) throw new Error('Failed to fetch liked songs');
-            this.dataCache.likedSongs = await response.json();
-        } catch (error) {
-            console.error('Failed to update liked songs:', error);
-        }
-    }
-
-    async toggleLikeSong(trackId, userId) {
-        try {
-            const response = await fetch(`${config.backendUrl}/users/${userId}/liked-songs/${trackId}`, {
-                method: 'POST'
-            });
-            if (!response.ok) throw new Error('Failed to toggle like');
-            await this.updateLikedSongs(userId);
-            // Refresh the UI sections that show tracks
-            await this.updateRecentTracks(userId);
-            await this.updateTopTracks(userId);
-        } catch (error) {
-            console.error('Failed to toggle like:', error);
-            this.showError('Failed to update song like status');
-        }
+        this.currentTrackInterval = setInterval(() => this.updateCurrentTrack(userId), 30000);
+        this.recentTracksInterval = setInterval(() => this.updateRecentTracks(userId), 60000);
     }
 
     async updateCurrentTrack(userId) {
@@ -434,38 +406,12 @@ class VerszApp {
             `;
         }
     }
-    renderTrackItem(track, index = null, userId = null) {
-        const isLiked = this.dataCache.likedSongs.some(song => song.track_id === track.track_id);
-        const rankHtml = index !== null ? `<div class="track-rank">${index + 1}</div>` : '';
-        const likeButton = userId ? `
-            <button class="like-button ${isLiked ? 'liked' : ''}" 
-                    onclick="app.toggleLikeSong('${track.track_id}', '${userId}')">
-                <i class="fas ${isLiked ? 'fa-heart' : 'fa-heart-o'}"></i>
-            </button>
-        ` : '';
-
-        return `
-            <div class="track-item">
-                ${rankHtml}
-                <img src="${track.album_art || '/api/placeholder/48/48'}" 
-                     alt="Album Art" 
-                     class="track-artwork"
-                     onerror="this.src='/api/placeholder/48/48'">
-                <div class="track-details">
-                    <div class="track-name">${this.escapeHtml(track.track_name)}</div>
-                    <div class="track-artist">${this.escapeHtml(track.artist_name)}</div>
-                    ${track.played_at ? `<div class="track-time">${this.formatDate(track.played_at)}</div>` : ''}
-                    ${track.popularity ? `<div class="track-popularity">Popularity: ${track.popularity}%</div>` : ''}
-                </div>
-                ${likeButton}
-            </div>
-        `;
-    }
-
 
     async updateRecentTracks(userId) {
         const tracksList = document.getElementById('tracks-list');
-        if (!tracksList) return;
+        const tracksCount = document.getElementById('tracks-count');
+        
+        if (!tracksList || !tracksCount) return;
         
         try {
             const response = await fetch(`${config.backendUrl}/users/${userId}/recent-tracks`);
@@ -474,7 +420,20 @@ class VerszApp {
             const tracks = await response.json();
             this.dataCache.recentTracks = tracks;
             
-            tracksList.innerHTML = tracks.map(track => this.renderTrackItem(track, null, userId)).join('');
+            tracksCount.textContent = tracks.length;
+            
+            tracksList.innerHTML = tracks.map(track => `
+                <div class="track-item">
+                    <img src="${track.album_art || '/api/placeholder/48/48'}" alt="Album Art" 
+                class="track-artwork"
+                onerror="this.src='/api/placeholder/48/48'">
+                <div class="track-details">
+                    <div class="track-name">${this.escapeHtml(track.track_name)}</div>
+                    <div class="track-artist">${this.escapeHtml(track.artist_name)}</div>
+                    <div class="track-time">${this.formatDate(track.played_at)}</div>
+                </div>
+            </div>
+        `).join('');
         } catch (error) {
             console.error('Failed to update recent tracks:', error);
             tracksList.innerHTML = `
@@ -483,12 +442,15 @@ class VerszApp {
                     Unable to fetch recent tracks
                 </div>
             `;
+            tracksCount.textContent = '0';
         }
     }
 
     async updateTopTracks(userId) {
         const topTracksList = document.getElementById('top-tracks-list');
-        if (!topTracksList) return;
+        const topTracksCount = document.getElementById('top-tracks-count');
+        
+        if (!topTracksList || !topTracksCount) return;
         
         try {
             const response = await fetch(`${config.backendUrl}/users/${userId}/top-tracks`);
@@ -497,9 +459,22 @@ class VerszApp {
             const tracks = await response.json();
             this.dataCache.topTracks = tracks;
             
-            topTracksList.innerHTML = tracks.map((track, index) => 
-                this.renderTrackItem(track, index, userId)
-            ).join('');
+            topTracksCount.textContent = tracks.length;
+            
+            topTracksList.innerHTML = tracks.map((track, index) => `
+                <div class="track-item">
+                    <div class="track-rank">${index + 1}</div>
+                    <img src="${track.album_art || '/api/placeholder/48/48'}" 
+                         alt="Album Art" 
+                         class="track-artwork"
+                         onerror="this.src='/api/placeholder/48/48'">
+                    <div class="track-details">
+                        <div class="track-name">${this.escapeHtml(track.track_name)}</div>
+                        <div class="track-artist">${this.escapeHtml(track.artist_name)}</div>
+                        <div class="track-popularity">Popularity: ${track.popularity}%</div>
+                    </div>
+                </div>
+            `).join('');
         } catch (error) {
             console.error('Failed to update top tracks:', error);
             topTracksList.innerHTML = `
@@ -508,6 +483,7 @@ class VerszApp {
                     Unable to fetch top tracks
                 </div>
             `;
+            topTracksCount.textContent = '0';
         }
     }
 
