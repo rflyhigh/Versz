@@ -7,6 +7,11 @@ class VerszApp {
         this.handleRouting();
     }
 
+    navigateToProfile(userId) {
+        // Update URL without triggering page reload
+        history.pushState({}, '', `/${userId}`);
+        this.handleRouting();
+    }
     setupEventListeners() {
         document.getElementById('login-btn')?.addEventListener('click', () => this.login());
         document.getElementById('logout-btn')?.addEventListener('click', () => this.logout());
@@ -56,10 +61,7 @@ class VerszApp {
         });
     }
 
-    navigateToProfile(userId) {
-        history.pushState({}, '', `/${userId}`);
-        this.handleRouting();
-    }
+    
 
     login() {
         const redirectUri = `${window.location.origin}/callback.html`;
@@ -116,9 +118,18 @@ class VerszApp {
         }
     }
 
+    navigateToProfile(userId) {
+        // Update URL without triggering page reload
+        history.pushState({}, '', `/${userId}`);
+        this.handleRouting();
+    }
+
     async handleRouting() {
+        // Remove any query parameters from the path
         const path = window.location.pathname;
-        const viewingUserId = path === '/' ? localStorage.getItem('spotify_user_id') : path.substring(1);
+        const viewingUserId = path === '/' ? 
+            localStorage.getItem('spotify_user_id') : 
+            path.split('/').filter(Boolean)[0];  // Get first non-empty segment
         
         if (!viewingUserId) {
             this.showLoginSection();
@@ -138,6 +149,16 @@ class VerszApp {
             console.error('Failed to load user profile:', error);
             window.location.href = '/';
         }
+    }
+
+    setupEventListeners() {
+        document.getElementById('login-btn')?.addEventListener('click', () => this.login());
+        document.getElementById('logout-btn')?.addEventListener('click', () => this.logout());
+        
+        // Update popstate handler to properly handle browser back/forward
+        window.addEventListener('popstate', (event) => {
+            this.handleRouting();
+        });
     }
 
     showLoginSection() {
