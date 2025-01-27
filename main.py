@@ -1,14 +1,3 @@
-# requirements.txt
-fastapi==0.109.0
-uvicorn==0.27.0
-python-dotenv==1.0.0
-aiosqlite==0.19.0
-httpx==0.26.0
-python-jose==3.3.0
-fastapi-cors==0.0.6
-apscheduler==3.10.4
-
-# main.py
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2AuthorizationCodeBearer
