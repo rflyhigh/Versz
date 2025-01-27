@@ -11,7 +11,8 @@ class SpotifyTracker {
     }
 
     login() {
-        const redirectUri = `${window.location.origin}/callback.html`;
+    
+        const redirectUri = 'https://versz.fun/callback.html';
         const authUrl = `https://accounts.spotify.com/authorize?client_id=${config.clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(config.scopes)}`;
         window.location.href = authUrl;
     }
