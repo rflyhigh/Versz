@@ -189,6 +189,21 @@ async def get_currently_playing(user_id: str):
                 "artist_name": data["item"]["artists"][0]["name"],
             }
 
+@app.get("/users/search")
+async def search_users(query: str):
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cursor = await db.execute(
+            """
+            SELECT DISTINCT spotify_id 
+            FROM users 
+            WHERE spotify_id LIKE ?
+            LIMIT 10
+            """,
+            (f"%{query}%",)
+        )
+        users = await cursor.fetchall()
+        return [{"id": user[0]} for user in users]
+
 # Background task to update recently played tracks
 @app.on_event("startup")
 async def setup_periodic_update():
@@ -232,3 +247,5 @@ async def update_recent_tracks():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
