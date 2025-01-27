@@ -1,4 +1,3 @@
-// app.js
 class VerszApp {
     constructor() {
         this.setupEventListeners();
@@ -45,7 +44,7 @@ class VerszApp {
             const userItem = e.target.closest('.search-result-item');
             if (userItem) {
                 const userId = userItem.dataset.userid;
-                window.location.href = `/${userId}`;
+                this.navigateToProfile(userId);
             }
         });
 
@@ -54,6 +53,11 @@ class VerszApp {
                 searchResults?.classList.add('hidden');
             }
         });
+    }
+
+    navigateToProfile(userId) {
+        history.pushState({}, '', `/${userId}`);
+        this.handleRouting();
     }
 
     login() {
@@ -97,7 +101,10 @@ class VerszApp {
 
     async handleRouting() {
         const path = window.location.pathname;
-        const viewingUserId = path === '/' ? localStorage.getItem('spotify_user_id') : path.substring(1);
+        let viewingUserId = path === '/' ? localStorage.getItem('spotify_user_id') : path.substring(1);
+        
+        // Remove any query parameters or trailing slashes
+        viewingUserId = viewingUserId?.split('?')[0]?.replace(/\/$/, '');
         
         if (!viewingUserId) {
             this.showLoginSection();
@@ -115,20 +122,33 @@ class VerszApp {
     }
 
     async showProfileSection(userId, isOwnProfile) {
-        document.getElementById('login-section').classList.add('hidden');
-        document.getElementById('profile-section').classList.remove('hidden');
-        
-        if (isOwnProfile) {
-            document.getElementById('user-info').classList.remove('hidden');
-            document.getElementById('username').textContent = userId;
-            document.getElementById('profile-link').href = `/${userId}`;
-        } else {
-            document.getElementById('user-info').classList.add('hidden');
-        }
+        try {
+            // Verify the user exists first
+            const response = await fetch(`${config.backendUrl}/users/${userId}`);
+            if (!response.ok) {
+                console.error('User not found');
+                this.showLoginSection();
+                return;
+            }
 
-        document.getElementById('profile-username').textContent = userId;
-        
-        await this.startTracking(userId);
+            document.getElementById('login-section').classList.add('hidden');
+            document.getElementById('profile-section').classList.remove('hidden');
+            
+            if (isOwnProfile) {
+                document.getElementById('user-info').classList.remove('hidden');
+                document.getElementById('username').textContent = userId;
+                document.getElementById('profile-link').href = `/${userId}`;
+            } else {
+                document.getElementById('user-info').classList.add('hidden');
+            }
+
+            document.getElementById('profile-username').textContent = userId;
+            
+            await this.startTracking(userId);
+        } catch (error) {
+            console.error('Failed to load profile:', error);
+            this.showLoginSection();
+        }
     }
 
     async startTracking(userId) {
@@ -146,6 +166,7 @@ class VerszApp {
         this.currentTrackInterval = setInterval(() => this.updateCurrentTrack(userId), 30000);
         this.recentTracksInterval = setInterval(() => this.updateRecentTracks(userId), 120000);
     }
+
 
     async updateCurrentTrack(userId) {
         try {
