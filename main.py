@@ -518,6 +518,23 @@ async def update_top_items():
 @app.get("/users/{user_id}/top-tracks")
 async def get_top_tracks(user_id: str):
     async with aiosqlite.connect(DATABASE_PATH) as db:
+        # First get the spotify_id from either custom_url or spotify_id
+        cursor = await db.execute(
+            """
+            SELECT spotify_id 
+            FROM users 
+            WHERE custom_url = ? OR spotify_id = ?
+            """,
+            (user_id.lower(), user_id)
+        )
+        user = await cursor.fetchone()
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        spotify_id = user[0]
+        
+        # Now fetch top tracks using the spotify_id
         cursor = await db.execute(
             """
             SELECT track_name, artist_name, album_name, album_art, popularity
@@ -526,7 +543,7 @@ async def get_top_tracks(user_id: str):
             ORDER BY popularity DESC
             LIMIT 50
             """,
-            (user_id,),
+            (spotify_id,),
         )
         tracks = await cursor.fetchall()
         return [
