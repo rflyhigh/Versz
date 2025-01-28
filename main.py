@@ -211,7 +211,7 @@ async def get_recent_tracks(user_id: str):
             FROM tracks
             WHERE user_id = ?
             ORDER BY played_at DESC
-            LIMIT 99
+            LIMIT 50
             """,
             (user_id,),
         )
