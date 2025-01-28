@@ -414,20 +414,27 @@ class VerszApp {
         document.title = `${userData.display_name || userData.id} - versz`;
     }
 
+    
     async startTracking(userId) {
         this.clearIntervals();
-        
-        await Promise.all([
-            this.updateCurrentTrack(userId),
-            this.updateRecentTracks(userId),
-            this.updateTopTracks(userId),
-            this.updateTopArtists(userId)
-        ]);
-        
-        this.currentTrackInterval = setInterval(() => this.updateCurrentTrack(userId), 30000);
-        this.recentTracksInterval = setInterval(() => this.updateRecentTracks(userId), 60000);
-        this.topartisInterval = setInterval(() =>this.updateTopArtists((userId), 60000));
-        this.toptrackSInterval = setInterval(() =>this.updateTopTracks((userId), 60000));
+   
+        try {
+            await Promise.all([
+                this.updateCurrentTrack(userId),
+                this.updateRecentTracks(userId),
+                this.updateTopTracks(userId),
+                this.updateTopArtists(userId)
+            ]);
+            
+   
+            this.currentTrackInterval = setInterval(() => this.updateCurrentTrack(userId), 30000);
+            this.recentTracksInterval = setInterval(() => this.updateRecentTracks(userId), 60000);
+            this.topartisInterval = setInterval(() => this.updateTopArtists(userId), 60000);
+            this.toptrackSInterval = setInterval(() => this.updateTopTracks(userId), 60000);
+        } catch (error) {
+            console.error('Error in startTracking:', error);
+            this.showError('Failed to start tracking. Please try refreshing the page.');
+        }
     }
 
     async updateCurrentTrack(userId) {
@@ -513,6 +520,8 @@ class VerszApp {
         }
     }
 
+    
+
     async updateTopTracks(userId) {
         const topTracksList = document.getElementById('top-tracks-list');
         const topTracksCount = document.getElementById('top-tracks-count');
@@ -521,10 +530,28 @@ class VerszApp {
         
         try {
             const response = await fetch(`${config.backendUrl}/users/${userId}/top-tracks`);
-            if (!response.ok) throw new Error('Failed to fetch top tracks');
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `Failed to fetch top tracks: ${response.status}`);
+            }
             
             const tracks = await response.json();
+            if (!Array.isArray(tracks)) {
+                throw new Error('Invalid response format for top tracks');
+            }
+            
             this.dataCache.topTracks = tracks;
+            
+            if (tracks.length === 0) {
+                topTracksList.innerHTML = `
+                    <div class="placeholder-text">
+                        <i class="fas fa-music"></i>
+                        No top tracks available yet
+                    </div>
+                `;
+                topTracksCount.textContent = '0';
+                return;
+            }
             
             topTracksCount.textContent = tracks.length;
             
@@ -547,13 +574,14 @@ class VerszApp {
             topTracksList.innerHTML = `
                 <div class="placeholder-text">
                     <i class="fas fa-exclamation-circle"></i>
-                    Unable to fetch top tracks
+                    ${error.message || 'Unable to fetch top tracks'}
                 </div>
             `;
             topTracksCount.textContent = '0';
         }
     }
-
+    
+    // Add similar error handling to updateTopArtists
     async updateTopArtists(userId) {
         const topArtistsList = document.getElementById('top-artists-list');
         const topArtistsCount = document.getElementById('top-artists-count');
@@ -562,10 +590,28 @@ class VerszApp {
         
         try {
             const response = await fetch(`${config.backendUrl}/users/${userId}/top-artists`);
-            if (!response.ok) throw new Error('Failed to fetch top artists');
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `Failed to fetch top artists: ${response.status}`);
+            }
             
             const artists = await response.json();
+            if (!Array.isArray(artists)) {
+                throw new Error('Invalid response format for top artists');
+            }
+            
             this.dataCache.topArtists = artists;
+            
+            if (artists.length === 0) {
+                topArtistsList.innerHTML = `
+                    <div class="placeholder-text">
+                        <i class="fas fa-music"></i>
+                        No top artists available yet
+                    </div>
+                `;
+                topArtistsCount.textContent = '0';
+                return;
+            }
             
             topArtistsCount.textContent = artists.length;
             
@@ -587,7 +633,7 @@ class VerszApp {
             topArtistsList.innerHTML = `
                 <div class="placeholder-text">
                     <i class="fas fa-exclamation-circle"></i>
-                    Unable to fetch top artists
+                    ${error.message || 'Unable to fetch top artists'}
                 </div>
             `;
             topArtistsCount.textContent = '0';
