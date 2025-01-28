@@ -124,79 +124,129 @@ async def spotify_callback(request: Request):
             raise HTTPException(status_code=400, detail="Authorization code is required")
         
         async with httpx.AsyncClient(timeout=30.0) as client:
-            # Exchange code for tokens
-            token_response = await client.post(
-                "https://accounts.spotify.com/api/token",
-                data={
-                    "grant_type": "authorization_code",
-                    "code": code,
-                    "redirect_uri": redirect_uri,
-                    "client_id": SPOTIFY_CLIENT_ID,
-                    "client_secret": SPOTIFY_CLIENT_SECRET,
-                },
-                headers={"Content-Type": "application/x-www-form-urlencoded"}
-            )
-            
-            if token_response.status_code != 200:
-                error_data = token_response.json()
-                print(f"Token error: {token_response.status_code} - {error_data}")
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"Failed to get access token: {error_data.get('error_description', 'Unknown error')}"
+            # Exchange code for tokens with error logging
+            try:
+                token_response = await client.post(
+                    "https://accounts.spotify.com/api/token",
+                    data={
+                        "grant_type": "authorization_code",
+                        "code": code,
+                        "redirect_uri": redirect_uri,
+                        "client_id": SPOTIFY_CLIENT_ID,
+                        "client_secret": SPOTIFY_CLIENT_SECRET,
+                    },
+                    headers={"Content-Type": "application/x-www-form-urlencoded"}
                 )
-            
-            token_data = token_response.json()
-            
-            # Add retry logic for profile fetch
+                
+                if token_response.status_code != 200:
+                    error_data = token_response.json()
+                    print(f"Token exchange failed: Status {token_response.status_code}")
+                    print(f"Error details: {error_data}")
+                    
+                    if 'error' in error_data:
+                        if error_data['error'] == 'invalid_grant':
+                            raise HTTPException(
+                                status_code=400,
+                                detail="Invalid authorization code. Please try logging in again."
+                            )
+                        elif error_data['error'] == 'invalid_client':
+                            raise HTTPException(
+                                status_code=500,
+                                detail="Invalid client credentials. Please contact support."
+                            )
+                    
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Authentication failed: {error_data.get('error_description', 'Unknown error')}"
+                    )
+                
+                token_data = token_response.json()
+                
+            except httpx.RequestError as e:
+                print(f"Token exchange network error: {str(e)}")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Unable to complete authentication. Please try again."
+                )
+
+            # User profile fetch with improved error handling
             max_retries = 3
+            retry_delay = 1  # seconds
+            
             for attempt in range(max_retries):
                 try:
                     user_response = await client.get(
                         "https://api.spotify.com/v1/me",
-                        headers={"Authorization": f"Bearer {token_data['access_token']}"},
+                        headers={
+                            "Authorization": f"Bearer {token_data['access_token']}",
+                            "Accept": "application/json"
+                        },
                         timeout=10.0
                     )
                     
                     if user_response.status_code == 403:
-                        print(f"Access denied. Checking if user needs to be added to dashboard.")
+                        print(f"Access denied error. Response: {user_response.text}")
                         raise HTTPException(
-                            status_code=403, 
-                            detail="Please ensure you're registered in the Spotify Dashboard"
+                            status_code=403,
+                            detail="Access denied. Please ensure your Spotify account is verified and try again."
                         )
                     
-                    if user_response.status_code != 200:
-                        if attempt == max_retries - 1:
-                            print(f"Profile error: {user_response.status_code} - {user_response.text}")
-                            raise HTTPException(status_code=400, detail="Failed to get user profile")
+                    if user_response.status_code == 429:
+                        retry_after = int(user_response.headers.get('Retry-After', 1))
+                        await asyncio.sleep(min(retry_after, 5))
                         continue
+                        
+                    if user_response.status_code != 200:
+                        print(f"Profile fetch error: Status {user_response.status_code}")
+                        print(f"Response: {user_response.text}")
+                        
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(retry_delay)
+                            continue
+                            
+                        raise HTTPException(
+                            status_code=500,
+                            detail="Unable to fetch user profile. Please try again."
+                        )
                     
                     user_data = user_response.json()
                     break
                     
                 except httpx.TimeoutException:
                     if attempt == max_retries - 1:
-                        raise HTTPException(status_code=408, detail="Request timeout")
+                        raise HTTPException(
+                            status_code=408,
+                            detail="Request timed out. Please try again."
+                        )
+                    await asyncio.sleep(retry_delay)
                     continue
             
-            # Store user data with error handling
+            # Database storage with transaction
             try:
                 async with aiosqlite.connect(DATABASE_PATH) as db:
-                    await db.execute("""
-                        INSERT OR REPLACE INTO users 
-                        (spotify_id, custom_url, access_token, refresh_token, token_expiry, display_name, avatar_url, last_update)
-                        VALUES (?, ?, ?, ?, datetime('now', '+1 hour'), ?, ?, datetime('now'))
-                    """, (
-                        user_data["id"],
-                        user_data["id"],
-                        token_data["access_token"],
-                        token_data["refresh_token"],
-                        user_data.get("display_name", user_data["id"]),
-                        user_data.get("images", [{}])[0].get("url", "")
-                    ))
-                    await db.commit()
+                    await db.execute("BEGIN TRANSACTION")
+                    try:
+                        await db.execute("""
+                            INSERT OR REPLACE INTO users 
+                            (spotify_id, custom_url, access_token, refresh_token, token_expiry, display_name, avatar_url, last_update)
+                            VALUES (?, ?, ?, ?, datetime('now', '+1 hour'), ?, ?, datetime('now'))
+                        """, (
+                            user_data["id"],
+                            user_data["id"],
+                            token_data["access_token"],
+                            token_data["refresh_token"],
+                            user_data.get("display_name", user_data["id"]),
+                            user_data.get("images", [{}])[0].get("url", "")
+                        ))
+                        await db.commit()
+                    except Exception as db_error:
+                        await db.rollback()
+                        print(f"Database transaction failed: {str(db_error)}")
+                        raise HTTPException(status_code=500, detail="Failed to save user data")
+                        
             except Exception as db_error:
-                print(f"Database error: {str(db_error)}")
-                raise HTTPException(status_code=500, detail="Failed to save user data")
+                print(f"Database connection error: {str(db_error)}")
+                raise HTTPException(status_code=500, detail="Database error occurred")
             
             return {
                 "success": True,
@@ -206,8 +256,8 @@ async def spotify_callback(request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Callback error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Unhandled callback error: {str(e)}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred")
 
 @app.get("/users/check-url/{custom_url}")
 async def check_custom_url(custom_url: str):
