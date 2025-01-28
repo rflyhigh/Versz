@@ -667,7 +667,24 @@ class VerszApp {
             }, 5000);
         }
     }
+    showSuccess(message) {
+        const successContainer = document.createElement('div');
+        successContainer.className = 'success-message animate__animated animate__fadeIn';
+        successContainer.textContent = message;
+        
+        const container = document.getElementById('error-container');
+        if (container) {
+            container.appendChild(successContainer);
+            
+            setTimeout(() => {
+                successContainer.classList.add('animate__fadeOut');
+                setTimeout(() => successContainer.remove(), 300);
+            }, 5000);
+        }
+    }
 }
+// Add showSuccess method, similar to showError
+
 
 // Initialize the app when the DOM is fully loaded
 document.addEventListener('DOMContentLoaded', () => {
