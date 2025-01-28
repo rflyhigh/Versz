@@ -98,10 +98,20 @@ async def startup_event():
 async def health_check():
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.get(f"{os.getenv('BACKEND_URL')}/health")
+            backend_url = os.getenv('BACKEND_URL')
+            if not backend_url:
+                print("BACKEND_URL environment variable is not set")
+                return
+                
+            if not backend_url.startswith(('http://', 'https://')):
+                backend_url = f"http://{backend_url}"
+                
+            response = await client.get(f"{backend_url}/health")
             print(f"Health check status: {response.status_code}")
         except Exception as e:
             print(f"Health check failed: {str(e)}")
+
+
 
 @app.get("/health")
 async def health():
