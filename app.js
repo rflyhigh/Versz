@@ -341,161 +341,164 @@ class VerszApp {
     }
     
     async updateCustomUrl(userId, newUrl) {
-    try {
-        const response = await fetch(`${config.backendUrl}/users/${userId}/custom-url`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ custom_url: newUrl })
-        });
-        
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || 'Failed to update URL');
+        try {
+            const response = await fetch(`${config.backendUrl}/users/${userId}/custom-url`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(newUrl)  // Send the URL string directly
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Failed to update URL');
+            }
+            
+            const result = await response.json();
+            return result;
+        } catch (error) {
+            console.error('Failed to update custom URL:', error);
+            throw error.message || 'Failed to update URL';
         }
-        
-        return await response.json();
-    } catch (error) {
-        console.error('Failed to update custom URL:', error);
-        throw error;
     }
-}
 
-async showProfileSection(userData, isOwnProfile) {
-    document.getElementById('login-section')?.classList.add('hidden');
-    document.getElementById('profile-section')?.classList.remove('hidden');
-    
-    const loggedInUserId = localStorage.getItem('spotify_user_id');
-    if (loggedInUserId) {
-        const userInfo = document.getElementById('user-info');
-        userInfo?.classList.remove('hidden');
+    async showProfileSection(userData, isOwnProfile) {
+        document.getElementById('login-section')?.classList.add('hidden');
+        document.getElementById('profile-section')?.classList.remove('hidden');
         
-        if (!isOwnProfile) {
-            try {
-                const response = await fetch(`${config.backendUrl}/users/${loggedInUserId}`);
-                if (response.ok) {
-                    const loggedInUserData = await response.json();
-                    this.updateUserInfo(loggedInUserData);
+        const loggedInUserId = localStorage.getItem('spotify_user_id');
+        if (loggedInUserId) {
+            const userInfo = document.getElementById('user-info');
+            userInfo?.classList.remove('hidden');
+            
+            if (!isOwnProfile) {
+                try {
+                    const response = await fetch(`${config.backendUrl}/users/${loggedInUserId}`);
+                    if (response.ok) {
+                        const loggedInUserData = await response.json();
+                        this.updateUserInfo(loggedInUserData);
+                    }
+                } catch (error) {
+                    console.error('Failed to fetch logged-in user data:', error);
                 }
-            } catch (error) {
-                console.error('Failed to fetch logged-in user data:', error);
+            } else {
+                this.updateUserInfo(userData);
             }
-        } else {
-            this.updateUserInfo(userData);
         }
-    }
 
-    // Remove any existing URL container before adding a new one
-    const existingUrlContainer = document.querySelector('.profile-url-container');
-    if (existingUrlContainer) {
-        existingUrlContainer.remove();
-    }
+        // Remove any existing URL container before adding a new one
+        const existingUrlContainer = document.querySelector('.profile-url-container');
+        if (existingUrlContainer) {
+            existingUrlContainer.remove();
+        }
 
-    if (isOwnProfile) {
-        const urlContainer = document.createElement('div');
-        urlContainer.className = 'profile-url-container';
-        urlContainer.innerHTML = `
-            <div class="profile-url-display">
-                <span class="url-prefix">versz.fun/</span>
-                <span class="current-url">${userData.custom_url || userData.id}</span>
-                <button class="edit-url-btn">
-                    <i class="fas fa-pencil-alt"></i>
-                </button>
-            </div>
-            <div class="url-editor hidden">
-                <input type="text" class="url-input" 
-                    placeholder="Enter custom URL"
-                    value="${userData.custom_url || userData.id}">
-                <div class="url-feedback"></div>
-                <div class="url-buttons">
-                    <button class="save-url-btn">Save</button>
-                    <button class="cancel-url-btn">Cancel</button>
+        if (isOwnProfile) {
+            const urlContainer = document.createElement('div');
+            urlContainer.className = 'profile-url-container';
+            urlContainer.innerHTML = `
+                <div class="profile-url-display">
+                    <span class="url-prefix">versz.fun/</span>
+                    <span class="current-url">${userData.custom_url || userData.id}</span>
+                    <button class="edit-url-btn">
+                        <i class="fas fa-pencil-alt"></i>
+                    </button>
                 </div>
-            </div>
-        `;
-        
-        document.querySelector('.profile-info').appendChild(urlContainer);
-        
-        // Add event listeners for URL editing
-        const editBtn = urlContainer.querySelector('.edit-url-btn');
-        const urlEditor = urlContainer.querySelector('.url-editor');
-        const urlInput = urlContainer.querySelector('.url-input');
-        const urlFeedback = urlContainer.querySelector('.url-feedback');
-        const saveBtn = urlContainer.querySelector('.save-url-btn');
-        const cancelBtn = urlContainer.querySelector('.cancel-url-btn');
-        
-        editBtn.addEventListener('click', () => {
-            urlEditor.classList.remove('hidden');
-            urlInput.focus();
-        });
-        
-        cancelBtn.addEventListener('click', () => {
-            urlEditor.classList.add('hidden');
-            urlInput.value = userData.custom_url || userData.id;
-            urlFeedback.textContent = '';
-        });
-        
-        let checkTimeout;
-        urlInput.addEventListener('input', () => {
-            clearTimeout(checkTimeout);
-            const value = urlInput.value.trim();
+                <div class="url-editor hidden">
+                    <input type="text" class="url-input" 
+                        placeholder="Enter custom URL"
+                        value="${userData.custom_url || userData.id}">
+                    <div class="url-feedback"></div>
+                    <div class="url-buttons">
+                        <button class="save-url-btn">Save</button>
+                        <button class="cancel-url-btn">Cancel</button>
+                    </div>
+                </div>
+            `;
             
-            if (!value) {
-                urlFeedback.textContent = 'URL cannot be empty';
-                urlFeedback.className = 'url-feedback unavailable';
-                saveBtn.disabled = true;
-                return;
-            }
+            document.querySelector('.profile-info').appendChild(urlContainer);
             
-            checkTimeout = setTimeout(async () => {
-                if (value === (userData.custom_url || userData.id)) {
-                    urlFeedback.textContent = '';
+            // Add event listeners for URL editing
+            const editBtn = urlContainer.querySelector('.edit-url-btn');
+            const urlEditor = urlContainer.querySelector('.url-editor');
+            const urlInput = urlContainer.querySelector('.url-input');
+            const urlFeedback = urlContainer.querySelector('.url-feedback');
+            const saveBtn = urlContainer.querySelector('.save-url-btn');
+            const cancelBtn = urlContainer.querySelector('.cancel-url-btn');
+            
+            editBtn.addEventListener('click', () => {
+                urlEditor.classList.remove('hidden');
+                urlInput.focus();
+            });
+            
+            cancelBtn.addEventListener('click', () => {
+                urlEditor.classList.add('hidden');
+                urlInput.value = userData.custom_url || userData.id;
+                urlFeedback.textContent = '';
+            });
+            
+            let checkTimeout;
+            urlInput.addEventListener('input', () => {
+                clearTimeout(checkTimeout);
+                const value = urlInput.value.trim();
+                
+                if (!value) {
+                    urlFeedback.textContent = 'URL cannot be empty';
+                    urlFeedback.className = 'url-feedback unavailable';
                     saveBtn.disabled = true;
                     return;
                 }
                 
-                try {
-                    const result = await this.checkCustomUrl(value);
-                    if (result.available) {
-                        urlFeedback.textContent = '✓ URL is available';
-                        urlFeedback.className = 'url-feedback available';
-                        saveBtn.disabled = false;
-                    } else {
-                        urlFeedback.textContent = `✗ ${result.reason || 'URL is not available'}`;
+                checkTimeout = setTimeout(async () => {
+                    if (value === (userData.custom_url || userData.id)) {
+                        urlFeedback.textContent = '';
+                        saveBtn.disabled = true;
+                        return;
+                    }
+                    
+                    try {
+                        const result = await this.checkCustomUrl(value);
+                        if (result.available) {
+                            urlFeedback.textContent = '✓ URL is available';
+                            urlFeedback.className = 'url-feedback available';
+                            saveBtn.disabled = false;
+                        } else {
+                            urlFeedback.textContent = `✗ ${result.reason || 'URL is not available'}`;
+                            urlFeedback.className = 'url-feedback unavailable';
+                            saveBtn.disabled = true;
+                        }
+                    } catch (error) {
+                        urlFeedback.textContent = '✗ Error checking URL availability';
                         urlFeedback.className = 'url-feedback unavailable';
                         saveBtn.disabled = true;
                     }
+                }, 300);
+            });
+            
+            saveBtn.addEventListener('click', async () => {
+                const newUrl = urlInput.value.trim();
+                try {
+                    const result = await this.updateCustomUrl(userData.id, newUrl);
+                    if (result.success) {
+                        userData.custom_url = result.custom_url;
+                        urlEditor.classList.add('hidden');
+                        document.querySelector('.current-url').textContent = result.custom_url;
+                        this.showSuccess('Profile URL updated successfully');
+                        
+                        if (window.location.pathname === `/${userData.id}`) {
+                            history.replaceState({}, '', `/${result.custom_url}`);
+                        }
+                    }
                 } catch (error) {
-                    urlFeedback.textContent = '✗ Error checking URL availability';
-                    urlFeedback.className = 'url-feedback unavailable';
-                    saveBtn.disabled = true;
+                    this.showError(error);
                 }
-            }, 300);
-        });
-        
-        saveBtn.addEventListener('click', async () => {
-            const newUrl = urlInput.value.trim();
-            try {
-                await this.updateCustomUrl(userData.id, newUrl);
-                userData.custom_url = newUrl;
-                urlEditor.classList.add('hidden');
-                document.querySelector('.current-url').textContent = newUrl;
-                this.showSuccess('Profile URL updated successfully');
-                
-                if (window.location.pathname === `/${userData.id}`) {
-                    history.replaceState({}, '', `/${newUrl}`);
-                }
-            } catch (error) {
-                this.showError(error.message);
-            }
-        });
-    }
+            });
+        }
 
-    this.updateProfileInfo(userData);
-    await this.startTracking(userData.id);
-    
-    // Show Recent Tracks tab by default
-    this.switchTab('recent-tracks');
-}
+        this.updateProfileInfo(userData);
+        await this.startTracking(userData.id);
+        
+        // Show Recent Tracks tab by default
+        this.switchTab('recent-tracks');
+    }
 
     updateUserInfo(userData) {
         const username = document.getElementById('username');
@@ -582,31 +585,50 @@ async showProfileSection(userData, isOwnProfile) {
         
         try {
             const response = await fetch(`${config.backendUrl}/users/${userId}/recent-tracks`);
-            if (!response.ok) throw new Error('Failed to fetch recent tracks');
+            if (!response.ok) {
+                throw new Error(`Failed to fetch recent tracks: ${response.status}`);
+            }
             
             const tracks = await response.json();
+            
+            if (!Array.isArray(tracks)) {
+                throw new Error('Invalid response format for recent tracks');
+            }
+            
             this.dataCache.recentTracks = tracks;
+            
+            if (tracks.length === 0) {
+                tracksList.innerHTML = `
+                    <div class="placeholder-text">
+                        <i class="fas fa-music"></i>
+                        No recent tracks found
+                    </div>
+                `;
+                tracksCount.textContent = '0';
+                return;
+            }
             
             tracksCount.textContent = tracks.length;
             
             tracksList.innerHTML = tracks.map(track => `
                 <div class="track-item">
-                    <img src="${track.album_art || '/api/placeholder/48/48'}" alt="Album Art" 
-                class="track-artwork"
-                onerror="this.src='/api/placeholder/48/48'">
-                <div class="track-details">
-                    <div class="track-name">${this.escapeHtml(track.track_name)}</div>
-                    <div class="track-artist">${this.escapeHtml(track.artist_name)}</div>
-                    <div class="track-time">${this.formatDate(track.played_at)}</div>
+                    <img src="${track.album_art || '/api/placeholder/48/48'}" 
+                         alt="Album Art" 
+                         class="track-artwork"
+                         onerror="this.src='/api/placeholder/48/48'">
+                    <div class="track-details">
+                        <div class="track-name">${this.escapeHtml(track.track_name)}</div>
+                        <div class="track-artist">${this.escapeHtml(track.artist_name)}</div>
+                        <div class="track-time">${this.formatDate(track.played_at)}</div>
+                    </div>
                 </div>
-            </div>
-        `).join('');
+            `).join('');
         } catch (error) {
             console.error('Failed to update recent tracks:', error);
             tracksList.innerHTML = `
                 <div class="placeholder-text">
                     <i class="fas fa-exclamation-circle"></i>
-                    Unable to fetch recent tracks
+                    Unable to fetch recent tracks: ${error.message}
                 </div>
             `;
             tracksCount.textContent = '0';
