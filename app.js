@@ -314,7 +314,7 @@ class VerszApp {
         });
         
         saveUrlBtn.addEventListener('click', async () => {
-            const newUrl = urlInput.value.trim();
+            const newUrl = urlInput.value.trim().toLowerCase();
             const userId = localStorage.getItem('spotify_user_id');
             
             try {
@@ -324,18 +324,18 @@ class VerszApp {
                     body: JSON.stringify({ custom_url: newUrl })
                 });
                 
-                if (response.ok) {
-                    const data = await response.json();
-                    history.pushState({}, '', `/${data.custom_url}`);
-                    urlEditor.classList.add('hidden');
-                    editUrlBtn.classList.remove('hidden');
-                    this.showSuccess('Profile URL updated successfully');
-                } else {
+                if (!response.ok) {
                     const error = await response.json();
-                    this.showError(error.detail);
+                    throw new Error(error.detail || 'Failed to update profile URL');
                 }
+                
+                const data = await response.json();
+                history.pushState({}, '', `/${data.custom_url}`);
+                urlEditor.classList.add('hidden');
+                editUrlBtn.classList.remove('hidden');
+                this.showSuccess('Profile URL updated successfully');
             } catch (error) {
-                this.showError('Failed to update profile URL');
+                this.showError(error.message);
             }
         });
     }
