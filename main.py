@@ -116,15 +116,14 @@ async def health():
 @app.post("/auth/callback")
 async def spotify_callback(request: Request):
     try:
-        # Get the request body
         request_data = await request.json()
         code = request_data.get('code')
         redirect_uri = request_data.get('redirect_uri', SPOTIFY_REDIRECT_URI)
         
         if not code:
-            raise HTTPException(status_code=400, detail="Code parameter is required")
+            raise HTTPException(status_code=400, detail="Authorization code is required")
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             # Exchange code for tokens
             token_response = await client.post(
                 "https://accounts.spotify.com/api/token",
@@ -139,29 +138,20 @@ async def spotify_callback(request: Request):
             )
             
             if token_response.status_code != 200:
-                print(f"Token response error: {token_response.status_code}, {token_response.text}")
-                raise HTTPException(status_code=400, detail="Failed to get token")
+                print(f"Token error: {token_response.status_code} - {token_response.text}")
+                raise HTTPException(status_code=400, detail="Failed to get access token")
             
             token_data = token_response.json()
             
-            # Get user profile with retry logic
-            for attempt in range(3):
-                try:
-                    user_response = await client.get(
-                        "https://api.spotify.com/v1/me",
-                        headers={"Authorization": f"Bearer {token_data['access_token']}"},
-                        timeout=10.0
-                    )
-                    if user_response.status_code == 200:
-                        break
-                    await asyncio.sleep(1)
-                except Exception:
-                    if attempt == 2:
-                        raise
-                    continue
+            # Get user profile
+            user_response = await client.get(
+                "https://api.spotify.com/v1/me",
+                headers={"Authorization": f"Bearer {token_data['access_token']}"},
+                timeout=10.0
+            )
             
             if user_response.status_code != 200:
-                print(f"User profile error: {user_response.status_code}, {user_response.text}")
+                print(f"Profile error: {user_response.status_code} - {user_response.text}")
                 raise HTTPException(status_code=400, detail="Failed to get user profile")
             
             user_data = user_response.json()
@@ -170,18 +160,22 @@ async def spotify_callback(request: Request):
             async with aiosqlite.connect(DATABASE_PATH) as db:
                 await db.execute("""
                     INSERT OR REPLACE INTO users 
-                    (spotify_id, custom_url, access_token, refresh_token, token_expiry, display_name, avatar_url)
-                    VALUES (?, COALESCE((SELECT custom_url FROM users WHERE spotify_id = ?), ?), ?, ?, datetime('now', '+1 hour'), ?, ?)
+                    (spotify_id, custom_url, access_token, refresh_token, token_expiry, display_name, avatar_url, last_update)
+                    VALUES (?, ?, ?, ?, datetime('now', '+1 hour'), ?, ?, datetime('now'))
                 """, (
                     user_data["id"],
                     user_data["id"],
-                    user_data["id"],  # Default custom_url is the spotify_id
                     token_data["access_token"],
-                    token_data.get("refresh_token"),
+                    token_data["refresh_token"],
                     user_data.get("display_name", user_data["id"]),
                     user_data.get("images", [{}])[0].get("url")
                 ))
                 await db.commit()
+            
+            return {
+                "success": True,
+                "user_id": user_data["id"]
+            }
             
     except Exception as e:
         print(f"Callback error: {str(e)}")
