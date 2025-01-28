@@ -149,18 +149,6 @@ async def spotify_callback(request: Request):
         
         if not code:
             raise HTTPException(status_code=400, detail="Code parameter is required")
-            
-        if not custom_url or not is_valid_url(custom_url):
-            raise HTTPException(status_code=400, detail="Invalid custom URL")
-
-        # Check URL availability
-        async with aiosqlite.connect(DATABASE_PATH) as db:
-            cursor = await db.execute(
-                "SELECT COUNT(*) FROM users WHERE custom_url = ?",
-                (custom_url.lower(),)
-            )
-            if (await cursor.fetchone())[0] > 0:
-                raise HTTPException(status_code=400, detail="URL already taken")
 
         async with httpx.AsyncClient() as client:
             # Exchange code for tokens
@@ -193,6 +181,10 @@ async def spotify_callback(request: Request):
             
             user_data = user_response.json()
             
+            # If no custom URL provided, use the Spotify user ID
+            if not custom_url or not is_valid_url(custom_url):
+                custom_url = user_data["id"]
+            
             # Store user data with custom URL
             async with aiosqlite.connect(DATABASE_PATH) as db:
                 await db.execute("""
@@ -217,7 +209,6 @@ async def spotify_callback(request: Request):
     except Exception as e:
         print(f"Callback error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
 # Modified get_user endpoint to handle custom URLs
 @app.get("/users/{user_id}")
 async def get_user(user_id: str):
