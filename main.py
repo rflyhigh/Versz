@@ -284,14 +284,14 @@ async def check_custom_url(custom_url: str):
 @app.put("/users/{user_id}/custom-url")
 async def update_custom_url(user_id: str, custom_url: str):
     if not custom_url.isalnum():
-        raise HTTPException(status_code=400, detail="URL must contain only letters and numbers")
+        raise HTTPException(status_code=422, detail="URL must contain only letters and numbers")
     
     if len(custom_url) < 3 or len(custom_url) > 30:
-        raise HTTPException(status_code=400, detail="URL must be between 3 and 30 characters")
+        raise HTTPException(status_code=422, detail="URL must be between 3 and 30 characters")
 
     reserved_words = {'login', 'admin', 'settings', 'profile', 'callback', 'api', 'auth'}
     if custom_url.lower() in reserved_words:
-        raise HTTPException(status_code=400, detail="This URL is reserved")
+        raise HTTPException(status_code=422, detail="This URL is reserved")
 
     async with aiosqlite.connect(DATABASE_PATH) as db:
         # Check if URL is already taken
@@ -301,7 +301,7 @@ async def update_custom_url(user_id: str, custom_url: str):
         )
         exists = await cursor.fetchone()
         if exists:
-            raise HTTPException(status_code=400, detail="URL is already taken")
+            raise HTTPException(status_code=422, detail="URL is already taken")
 
         # Update the custom URL
         await db.execute(
@@ -309,7 +309,8 @@ async def update_custom_url(user_id: str, custom_url: str):
             (custom_url, user_id)
         )
         await db.commit()
-        return {"success": True}
+        
+        return {"success": True, "custom_url": custom_url}
 
 # Update the existing user endpoint to include custom_url
 @app.get("/users/{user_id}")
@@ -488,6 +489,7 @@ async def get_valid_token(user_id: str):
             return await refresh_token(user_id, user[1])
             
         return user[0]
+        
 async def update_recent_tracks():
     async with aiosqlite.connect(DATABASE_PATH) as db:
         cursor = await db.execute(
@@ -511,14 +513,18 @@ async def update_recent_tracks():
                     )
                     
                     if response.status_code != 200:
+                        print(f"Failed to fetch recent tracks for user {user_id}: {response.status_code}")
                         continue
                     
-                    tracks = response.json()["items"]
+                    tracks = response.json().get("items", [])
+                    
+                    # Clear existing tracks before inserting new ones
+                    await db.execute("DELETE FROM tracks WHERE user_id = ?", (user_id,))
                     
                     for track in tracks:
                         await db.execute(
                             """
-                            INSERT OR REPLACE INTO tracks
+                            INSERT INTO tracks
                             (user_id, track_id, track_name, artist_name, album_name, album_art, played_at)
                             VALUES (?, ?, ?, ?, ?, ?, ?)
                             """,
