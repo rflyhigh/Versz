@@ -185,6 +185,10 @@ async def spotify_callback(request: Request):
             if not custom_url or not is_valid_url(custom_url):
                 custom_url = user_data["id"]
             
+            # Safely get the avatar URL
+            images = user_data.get("images", [])
+            avatar_url = images[0].get("url") if images else None
+            
             # Store user data with custom URL
             async with aiosqlite.connect(DATABASE_PATH) as db:
                 await db.execute("""
@@ -197,7 +201,7 @@ async def spotify_callback(request: Request):
                     token_data["access_token"],
                     token_data.get("refresh_token"),
                     user_data.get("display_name", user_data["id"]),
-                    user_data.get("images", [{}])[0].get("url")
+                    avatar_url
                 ))
                 await db.commit()
             
@@ -209,6 +213,7 @@ async def spotify_callback(request: Request):
     except Exception as e:
         print(f"Callback error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
 # Modified get_user endpoint to handle custom URLs
 @app.get("/users/{user_id}")
 async def get_user(user_id: str):
