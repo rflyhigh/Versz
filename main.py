@@ -138,45 +138,73 @@ async def spotify_callback(request: Request):
             )
             
             if token_response.status_code != 200:
-                print(f"Token error: {token_response.status_code} - {token_response.text}")
-                raise HTTPException(status_code=400, detail="Failed to get access token")
+                error_data = token_response.json()
+                print(f"Token error: {token_response.status_code} - {error_data}")
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Failed to get access token: {error_data.get('error_description', 'Unknown error')}"
+                )
             
             token_data = token_response.json()
             
-            # Get user profile
-            user_response = await client.get(
-                "https://api.spotify.com/v1/me",
-                headers={"Authorization": f"Bearer {token_data['access_token']}"},
-                timeout=10.0
-            )
+            # Add retry logic for profile fetch
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    user_response = await client.get(
+                        "https://api.spotify.com/v1/me",
+                        headers={"Authorization": f"Bearer {token_data['access_token']}"},
+                        timeout=10.0
+                    )
+                    
+                    if user_response.status_code == 403:
+                        print(f"Access denied. Checking if user needs to be added to dashboard.")
+                        raise HTTPException(
+                            status_code=403, 
+                            detail="Please ensure you're registered in the Spotify Dashboard"
+                        )
+                    
+                    if user_response.status_code != 200:
+                        if attempt == max_retries - 1:
+                            print(f"Profile error: {user_response.status_code} - {user_response.text}")
+                            raise HTTPException(status_code=400, detail="Failed to get user profile")
+                        continue
+                    
+                    user_data = user_response.json()
+                    break
+                    
+                except httpx.TimeoutException:
+                    if attempt == max_retries - 1:
+                        raise HTTPException(status_code=408, detail="Request timeout")
+                    continue
             
-            if user_response.status_code != 200:
-                print(f"Profile error: {user_response.status_code} - {user_response.text}")
-                raise HTTPException(status_code=400, detail="Failed to get user profile")
-            
-            user_data = user_response.json()
-            
-            # Store user data
-            async with aiosqlite.connect(DATABASE_PATH) as db:
-                await db.execute("""
-                    INSERT OR REPLACE INTO users 
-                    (spotify_id, custom_url, access_token, refresh_token, token_expiry, display_name, avatar_url, last_update)
-                    VALUES (?, ?, ?, ?, datetime('now', '+1 hour'), ?, ?, datetime('now'))
-                """, (
-                    user_data["id"],
-                    user_data["id"],
-                    token_data["access_token"],
-                    token_data["refresh_token"],
-                    user_data.get("display_name", user_data["id"]),
-                    user_data.get("images", [{}])[0].get("url")
-                ))
-                await db.commit()
+            # Store user data with error handling
+            try:
+                async with aiosqlite.connect(DATABASE_PATH) as db:
+                    await db.execute("""
+                        INSERT OR REPLACE INTO users 
+                        (spotify_id, custom_url, access_token, refresh_token, token_expiry, display_name, avatar_url, last_update)
+                        VALUES (?, ?, ?, ?, datetime('now', '+1 hour'), ?, ?, datetime('now'))
+                    """, (
+                        user_data["id"],
+                        user_data["id"],
+                        token_data["access_token"],
+                        token_data["refresh_token"],
+                        user_data.get("display_name", user_data["id"]),
+                        user_data.get("images", [{}])[0].get("url", "")
+                    ))
+                    await db.commit()
+            except Exception as db_error:
+                print(f"Database error: {str(db_error)}")
+                raise HTTPException(status_code=500, detail="Failed to save user data")
             
             return {
                 "success": True,
                 "user_id": user_data["id"]
             }
             
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Callback error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
