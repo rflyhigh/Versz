@@ -518,6 +518,7 @@ class VerszApp {
             tracksCount.textContent = '0';
         }
     }
+
     async updateTopTracks(userId) {
         const topTracksList = document.getElementById('top-tracks-list');
         const topTracksCount = document.getElementById('top-tracks-count');
@@ -550,16 +551,9 @@ class VerszApp {
             
             topTracksCount.textContent = tracks.length;
             
-            // Clear the list first
-            topTracksList.innerHTML = '';
-            
             // Create and append each track element
-            tracks.forEach((track, index) => {
-                const trackElement = document.createElement('div');
-                trackElement.className = 'track-item';
-                
-                // Create the inner HTML with proper error handling for missing data
-                trackElement.innerHTML = `
+            topTracksList.innerHTML = tracks.map((track, index) => `
+                <div class="track-item">
                     <div class="track-rank">${index + 1}</div>
                     <img src="${track.album_art || 'https://placehold.co/48'}" 
                          alt="Album Art" 
@@ -569,12 +563,13 @@ class VerszApp {
                         <div class="track-name">${this.escapeHtml(track.track_name || 'Unknown Track')}</div>
                         <div class="track-artist">${this.escapeHtml(track.artist_name || 'Unknown Artist')}</div>
                         ${track.album_name ? `<div class="track-album">${this.escapeHtml(track.album_name)}</div>` : ''}
-                        ${track.popularity ? `<div class="track-popularity">Popularity: ${track.popularity}%</div>` : ''}
+                        ${track.popularity ? `<div class="track-popularity">
+                            <div class="popularity-bar" style="width: ${track.popularity}%"></div>
+                            <span>${track.popularity}%</span>
+                        </div>` : ''}
                     </div>
-                `;
-                
-                topTracksList.appendChild(trackElement);
-            });
+                </div>
+            `).join('');
             
         } catch (error) {
             console.error('Failed to update top tracks:', error);
