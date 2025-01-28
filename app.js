@@ -519,9 +519,6 @@ class VerszApp {
             tracksCount.textContent = '0';
         }
     }
-
-    
-
     async updateTopTracks(userId) {
         const topTracksList = document.getElementById('top-tracks-list');
         const topTracksCount = document.getElementById('top-tracks-count');
@@ -531,8 +528,7 @@ class VerszApp {
         try {
             const response = await fetch(`${config.backendUrl}/users/${userId}/top-tracks`);
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.detail || `Failed to fetch top tracks: ${response.status}`);
+                throw new Error(`Failed to fetch top tracks: ${response.status}`);
             }
             
             const tracks = await response.json();
@@ -541,7 +537,6 @@ class VerszApp {
             }
             
             this.dataCache.topTracks = tracks;
-            topTracksCount.textContent = tracks.length;
             
             if (tracks.length === 0) {
                 topTracksList.innerHTML = `
@@ -550,15 +545,21 @@ class VerszApp {
                         No top tracks available yet
                     </div>
                 `;
+                topTracksCount.textContent = '0';
                 return;
             }
-    
-            // Create the tracks list HTML
-            topTracksList.innerHTML = '';  // Clear existing content first
             
+            topTracksCount.textContent = tracks.length;
+            
+            // Clear the list first
+            topTracksList.innerHTML = '';
+            
+            // Create and append each track element
             tracks.forEach((track, index) => {
                 const trackElement = document.createElement('div');
                 trackElement.className = 'track-item';
+                
+                // Create the inner HTML with proper error handling for missing data
                 trackElement.innerHTML = `
                     <div class="track-rank">${index + 1}</div>
                     <img src="${track.album_art || 'https://placehold.co/48'}" 
@@ -566,12 +567,13 @@ class VerszApp {
                          class="track-artwork"
                          onerror="this.src='https://placehold.co/48'">
                     <div class="track-details">
-                        <div class="track-name">${this.escapeHtml(track.track_name)}</div>
-                        <div class="track-artist">${this.escapeHtml(track.artist_name)}</div>
+                        <div class="track-name">${this.escapeHtml(track.track_name || 'Unknown Track')}</div>
+                        <div class="track-artist">${this.escapeHtml(track.artist_name || 'Unknown Artist')}</div>
                         ${track.album_name ? `<div class="track-album">${this.escapeHtml(track.album_name)}</div>` : ''}
                         ${track.popularity ? `<div class="track-popularity">Popularity: ${track.popularity}%</div>` : ''}
                     </div>
                 `;
+                
                 topTracksList.appendChild(trackElement);
             });
             
@@ -587,6 +589,7 @@ class VerszApp {
         }
     }
 
+    
     async updateTopArtists(userId) {
         const topArtistsList = document.getElementById('top-artists-list');
         const artistsCount = document.getElementById('artists-count');
