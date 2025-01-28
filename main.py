@@ -221,18 +221,32 @@ async def check_custom_url(custom_url: str):
             "reason": "URL is already taken" if exists else None
         }
 
-# Add new endpoint to update custom URL
 @app.post("/users/{user_id}/custom-url")
 async def update_custom_url(user_id: str, custom_url: str):
+    # Validate URL format
     if not custom_url.isalnum() or len(custom_url) < 3 or len(custom_url) > 30:
-        raise HTTPException(status_code=400, detail="Invalid URL format")
+        raise HTTPException(status_code=422, detail="Invalid URL format")
     
-    # Check availability first
-    availability = await check_custom_url(custom_url)
-    if not availability["available"]:
-        raise HTTPException(status_code=400, detail=availability["reason"])
+    # Convert to lowercase to ensure consistency
+    custom_url = custom_url.lower()
+    
+    # Check reserved words
+    reserved_words = {'login', 'admin', 'settings', 'profile', 'home', 'search', 'api'}
+    if custom_url.lower() in reserved_words:
+        raise HTTPException(status_code=422, detail="This URL is reserved")
     
     async with aiosqlite.connect(DATABASE_PATH) as db:
+        # Check if URL is already taken
+        cursor = await db.execute(
+            "SELECT 1 FROM users WHERE custom_url = ? AND spotify_id != ?",
+            (custom_url, user_id)
+        )
+        exists = await cursor.fetchone()
+        
+        if exists:
+            raise HTTPException(status_code=422, detail="URL is already taken")
+        
+        # Update the custom URL
         await db.execute(
             "UPDATE users SET custom_url = ? WHERE spotify_id = ?",
             (custom_url, user_id)
