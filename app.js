@@ -324,18 +324,22 @@ class VerszApp {
                     body: JSON.stringify({ custom_url: newUrl })
                 });
                 
+                const data = await response.json();
+                
                 if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.detail || 'Failed to update profile URL');
+                    // Handle error response from the server
+                    const errorMessage = data.detail || data.message || 'Failed to update profile URL';
+                    throw new Error(errorMessage);
                 }
                 
-                const data = await response.json();
                 history.pushState({}, '', `/${data.custom_url}`);
                 urlEditor.classList.add('hidden');
                 editUrlBtn.classList.remove('hidden');
                 this.showSuccess('Profile URL updated successfully');
             } catch (error) {
-                this.showError(error.message);
+                // Extract the error message, falling back to a generic message if needed
+                const errorMessage = error.message || 'An error occurred while updating the URL';
+                this.showError(errorMessage);
             }
         });
     }
