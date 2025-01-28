@@ -541,6 +541,7 @@ class VerszApp {
             }
             
             this.dataCache.topTracks = tracks;
+            topTracksCount.textContent = tracks.length;
             
             if (tracks.length === 0) {
                 topTracksList.innerHTML = `
@@ -549,14 +550,16 @@ class VerszApp {
                         No top tracks available yet
                     </div>
                 `;
-                topTracksCount.textContent = '0';
                 return;
             }
+    
+            // Create the tracks list HTML
+            topTracksList.innerHTML = '';  // Clear existing content first
             
-            topTracksCount.textContent = tracks.length;
-            
-            topTracksList.innerHTML = tracks.map((track, index) => `
-                <div class="track-item">
+            tracks.forEach((track, index) => {
+                const trackElement = document.createElement('div');
+                trackElement.className = 'track-item';
+                trackElement.innerHTML = `
                     <div class="track-rank">${index + 1}</div>
                     <img src="${track.album_art || 'https://placehold.co/48'}" 
                          alt="Album Art" 
@@ -568,8 +571,10 @@ class VerszApp {
                         ${track.album_name ? `<div class="track-album">${this.escapeHtml(track.album_name)}</div>` : ''}
                         ${track.popularity ? `<div class="track-popularity">Popularity: ${track.popularity}%</div>` : ''}
                     </div>
-                </div>
-            `).join('');
+                `;
+                topTracksList.appendChild(trackElement);
+            });
+            
         } catch (error) {
             console.error('Failed to update top tracks:', error);
             topTracksList.innerHTML = `
