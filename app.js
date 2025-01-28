@@ -682,6 +682,10 @@ class VerszApp {
             }, 5000);
         }
     }
+    const profileUrlSection = document.querySelector('.profile-url-section');
+    if (profileUrlSection) {
+        profileUrlSection.classList.toggle('hidden', !isOwnProfile);
+    }
 }
 // Add showSuccess method, similar to showError
 
