@@ -31,19 +31,44 @@ scheduler = AsyncIOScheduler()
 
 async def init_db():
     async with aiosqlite.connect(DATABASE_PATH) as db:
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id TEXT PRIMARY KEY,
-                spotify_id TEXT UNIQUE,
-                access_token TEXT,
-                refresh_token TEXT,
-                token_expiry TIMESTAMP,
-                display_name TEXT,
-                avatar_url TEXT,
-                last_update TIMESTAMP
-            )
+        # First, check if custom_url column exists
+        cursor = await db.execute("""
+            SELECT name FROM pragma_table_info('users') WHERE name = 'custom_url'
         """)
-        
+        has_custom_url = await cursor.fetchone()
+
+        if not has_custom_url:
+            # Create a new users table with the custom_url column
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS users_new (
+                    id TEXT PRIMARY KEY,
+                    spotify_id TEXT UNIQUE,
+                    access_token TEXT,
+                    refresh_token TEXT,
+                    token_expiry TIMESTAMP,
+                    display_name TEXT,
+                    avatar_url TEXT,
+                    last_update TIMESTAMP,
+                    custom_url TEXT UNIQUE
+                )
+            """)
+
+            # Copy data from the old table to the new one
+            await db.execute("""
+                INSERT INTO users_new (
+                    id, spotify_id, access_token, refresh_token, 
+                    token_expiry, display_name, avatar_url, last_update
+                )
+                SELECT id, spotify_id, access_token, refresh_token,
+                       token_expiry, display_name, avatar_url, last_update
+                FROM users
+            """)
+
+            # Drop the old table and rename the new one
+            await db.execute("DROP TABLE users")
+            await db.execute("ALTER TABLE users_new RENAME TO users")
+
+        # Create other tables if they don't exist
         await db.execute("""
             CREATE TABLE IF NOT EXISTS tracks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,10 +107,6 @@ async def init_db():
                 popularity INTEGER,
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
-        """)
-        
-        await db.execute("""
-            ALTER TABLE users ADD COLUMN custom_url TEXT UNIQUE
         """)
         
         await db.commit()
