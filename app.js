@@ -341,103 +341,119 @@ class VerszApp {
     }
     
     async updateCustomUrl(userId, newUrl) {
-        try {
-            const response = await fetch(`${config.backendUrl}/users/${userId}/custom-url`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ custom_url: newUrl })
-            });
-            
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.detail || 'Failed to update URL');
+    try {
+        const response = await fetch(`${config.backendUrl}/users/${userId}/custom-url`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ custom_url: newUrl })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to update URL');
+        }
+        
+        return await response.json();
+    } catch (error) {
+        console.error('Failed to update custom URL:', error);
+        throw error;
+    }
+}
+
+async showProfileSection(userData, isOwnProfile) {
+    document.getElementById('login-section')?.classList.add('hidden');
+    document.getElementById('profile-section')?.classList.remove('hidden');
+    
+    const loggedInUserId = localStorage.getItem('spotify_user_id');
+    if (loggedInUserId) {
+        const userInfo = document.getElementById('user-info');
+        userInfo?.classList.remove('hidden');
+        
+        if (!isOwnProfile) {
+            try {
+                const response = await fetch(`${config.backendUrl}/users/${loggedInUserId}`);
+                if (response.ok) {
+                    const loggedInUserData = await response.json();
+                    this.updateUserInfo(loggedInUserData);
+                }
+            } catch (error) {
+                console.error('Failed to fetch logged-in user data:', error);
             }
-            
-            return await response.json();
-        } catch (error) {
-            console.error('Failed to update custom URL:', error);
-            throw error;
+        } else {
+            this.updateUserInfo(userData);
         }
     }
 
-    async showProfileSection(userData, isOwnProfile) {
-        document.getElementById('login-section')?.classList.add('hidden');
-        document.getElementById('profile-section')?.classList.remove('hidden');
+    // Remove any existing URL container before adding a new one
+    const existingUrlContainer = document.querySelector('.profile-url-container');
+    if (existingUrlContainer) {
+        existingUrlContainer.remove();
+    }
+
+    if (isOwnProfile) {
+        const urlContainer = document.createElement('div');
+        urlContainer.className = 'profile-url-container';
+        urlContainer.innerHTML = `
+            <div class="profile-url-display">
+                <span class="url-prefix">versz.fun/</span>
+                <span class="current-url">${userData.custom_url || userData.id}</span>
+                <button class="edit-url-btn">
+                    <i class="fas fa-pencil-alt"></i>
+                </button>
+            </div>
+            <div class="url-editor hidden">
+                <input type="text" class="url-input" 
+                    placeholder="Enter custom URL"
+                    value="${userData.custom_url || userData.id}">
+                <div class="url-feedback"></div>
+                <div class="url-buttons">
+                    <button class="save-url-btn">Save</button>
+                    <button class="cancel-url-btn">Cancel</button>
+                </div>
+            </div>
+        `;
         
-        const loggedInUserId = localStorage.getItem('spotify_user_id');
-        if (loggedInUserId) {
-            const userInfo = document.getElementById('user-info');
-            userInfo?.classList.remove('hidden');
+        document.querySelector('.profile-info').appendChild(urlContainer);
+        
+        // Add event listeners for URL editing
+        const editBtn = urlContainer.querySelector('.edit-url-btn');
+        const urlEditor = urlContainer.querySelector('.url-editor');
+        const urlInput = urlContainer.querySelector('.url-input');
+        const urlFeedback = urlContainer.querySelector('.url-feedback');
+        const saveBtn = urlContainer.querySelector('.save-url-btn');
+        const cancelBtn = urlContainer.querySelector('.cancel-url-btn');
+        
+        editBtn.addEventListener('click', () => {
+            urlEditor.classList.remove('hidden');
+            urlInput.focus();
+        });
+        
+        cancelBtn.addEventListener('click', () => {
+            urlEditor.classList.add('hidden');
+            urlInput.value = userData.custom_url || userData.id;
+            urlFeedback.textContent = '';
+        });
+        
+        let checkTimeout;
+        urlInput.addEventListener('input', () => {
+            clearTimeout(checkTimeout);
+            const value = urlInput.value.trim();
             
-            if (!isOwnProfile) {
-                try {
-                    const response = await fetch(`${config.backendUrl}/users/${loggedInUserId}`);
-                    if (response.ok) {
-                        const loggedInUserData = await response.json();
-                        this.updateUserInfo(loggedInUserData);
-                    }
-                } catch (error) {
-                    console.error('Failed to fetch logged-in user data:', error);
-                }
-            } else {
-                this.updateUserInfo(userData);
+            if (!value) {
+                urlFeedback.textContent = 'URL cannot be empty';
+                urlFeedback.className = 'url-feedback unavailable';
+                saveBtn.disabled = true;
+                return;
             }
-        }
-        if (isOwnProfile) {
-            const urlContainer = document.createElement('div');
-            urlContainer.className = 'profile-url-container';
-            urlContainer.innerHTML = `
-                <div class="profile-url-display">
-                    <span class="url-prefix">versz.fun/</span>
-                    <span class="current-url">${userData.custom_url || userData.id}</span>
-                    <button class="edit-url-btn">
-                        <i class="fas fa-pencil-alt"></i>
-                    </button>
-                </div>
-                <div class="url-editor hidden">
-                    <input type="text" class="url-input" 
-                        placeholder="Enter custom URL"
-                        value="${userData.custom_url || userData.id}">
-                    <div class="url-feedback"></div>
-                    <div class="url-buttons">
-                        <button class="save-url-btn">Save</button>
-                        <button class="cancel-url-btn">Cancel</button>
-                    </div>
-                </div>
-            `;
             
-            document.querySelector('.profile-info').appendChild(urlContainer);
-            
-            // Add event listeners for URL editing
-            const editBtn = urlContainer.querySelector('.edit-url-btn');
-            const urlEditor = urlContainer.querySelector('.url-editor');
-            const urlInput = urlContainer.querySelector('.url-input');
-            const urlFeedback = urlContainer.querySelector('.url-feedback');
-            const saveBtn = urlContainer.querySelector('.save-url-btn');
-            const cancelBtn = urlContainer.querySelector('.cancel-url-btn');
-            
-            editBtn.addEventListener('click', () => {
-                urlEditor.classList.remove('hidden');
-                urlInput.focus();
-            });
-            
-            cancelBtn.addEventListener('click', () => {
-                urlEditor.classList.add('hidden');
-                urlInput.value = userData.custom_url || userData.id;
-                urlFeedback.textContent = '';
-            });
-            
-            let checkTimeout;
-            urlInput.addEventListener('input', () => {
-                clearTimeout(checkTimeout);
-                const value = urlInput.value.trim();
+            checkTimeout = setTimeout(async () => {
+                if (value === (userData.custom_url || userData.id)) {
+                    urlFeedback.textContent = '';
+                    saveBtn.disabled = true;
+                    return;
+                }
                 
-                checkTimeout = setTimeout(async () => {
-                    if (value === (userData.custom_url || userData.id)) {
-                        urlFeedback.textContent = '';
-                        return;
-                    }
-                    
+                try {
                     const result = await this.checkCustomUrl(value);
                     if (result.available) {
                         urlFeedback.textContent = '✓ URL is available';
@@ -448,34 +464,38 @@ class VerszApp {
                         urlFeedback.className = 'url-feedback unavailable';
                         saveBtn.disabled = true;
                     }
-                }, 300);
-            });
-            
-            saveBtn.addEventListener('click', async () => {
-                const newUrl = urlInput.value.trim();
-                try {
-                    await this.updateCustomUrl(userData.id, newUrl);
-                    userData.custom_url = newUrl;
-                    urlEditor.classList.add('hidden');
-                    document.querySelector('.current-url').textContent = newUrl;
-                    this.showSuccess('Profile URL updated successfully');
-                    
-                    // Update the browser URL if needed
-                    if (window.location.pathname === `/${userData.id}`) {
-                        history.replaceState({}, '', `/${newUrl}`);
-                    }
                 } catch (error) {
-                    this.showError(error.message);
+                    urlFeedback.textContent = '✗ Error checking URL availability';
+                    urlFeedback.className = 'url-feedback unavailable';
+                    saveBtn.disabled = true;
                 }
-            });
-        }
-
-        this.updateProfileInfo(userData);
-        await this.startTracking(userData.id);
+            }, 300);
+        });
         
-        // Show Recent Tracks tab by default
-        this.switchTab('recent-tracks');
+        saveBtn.addEventListener('click', async () => {
+            const newUrl = urlInput.value.trim();
+            try {
+                await this.updateCustomUrl(userData.id, newUrl);
+                userData.custom_url = newUrl;
+                urlEditor.classList.add('hidden');
+                document.querySelector('.current-url').textContent = newUrl;
+                this.showSuccess('Profile URL updated successfully');
+                
+                if (window.location.pathname === `/${userData.id}`) {
+                    history.replaceState({}, '', `/${newUrl}`);
+                }
+            } catch (error) {
+                this.showError(error.message);
+            }
+        });
     }
+
+    this.updateProfileInfo(userData);
+    await this.startTracking(userData.id);
+    
+    // Show Recent Tracks tab by default
+    this.switchTab('recent-tracks');
+}
 
     updateUserInfo(userData) {
         const username = document.getElementById('username');
