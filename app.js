@@ -530,74 +530,83 @@ class VerszApp {
     }
 
     async updateTopTracks(userId) {
-        console.log('Updating top tracks for user:', userId);
-        const topTracksList = document.getElementById('top-tracks-list');
-        const topTracksCount = document.getElementById('top-tracks-count');
+    console.log('Updating top tracks for user:', userId);
+    const topTracksList = document.getElementById('top-tracks-list');
+    const topTracksCount = document.getElementById('tracks-count');
+    
+    if (!topTracksList || !topTracksCount) {
+        console.error('Required DOM elements not found:', {
+            topTracksList: !!topTracksList,
+            topTracksCount: !!topTracksCount
+        });
+        return;
+    }
+    
+    try {
+        const url = `${config.backendUrl}/users/${userId}/top-tracks`;
+        console.log('Fetching top tracks from:', url);
         
-        if (!topTracksList || !topTracksCount) {
-            console.error('Required DOM elements not found:', {
-                topTracksList: !!topTracksList,
-                topTracksCount: !!topTracksCount
-            });
-            return;
+        const response = await fetch(url);
+        console.log('Top tracks response status:', response.status);
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Top tracks fetch failed:', response.status, errorText);
+            throw new Error(`Failed to fetch top tracks: ${response.status}`);
         }
         
-        try {
-            console.log('Fetching top tracks from:', `${config.backendUrl}/users/${userId}/top-tracks`);
-            const response = await fetch(`${config.backendUrl}/users/${userId}/top-tracks`);
-            
-            if (!response.ok) {
-                throw new Error(`Failed to fetch top tracks: ${response.status}`);
-            }
-            
-            const tracks = await response.json();
-            console.log('Received top tracks:', tracks);
-    
-            if (!Array.isArray(tracks)) {
-                throw new Error('Invalid response format for top tracks');
-            }
-            
-            this.dataCache.topTracks = tracks;
-            topTracksCount.textContent = tracks.length;
-            
-            if (tracks.length === 0) {
-                topTracksList.innerHTML = `
-                    <div class="placeholder-text">
-                        <i class="fas fa-music"></i>
-                        No top tracks available yet
-                    </div>
-                `;
-                return;
-            }
-            
-            topTracksList.innerHTML = tracks.map((track, index) => `
-                <div class="track-item">
-                    <div class="track-rank">${index + 1}</div>
-                    <img src="${track.album_art || 'https://placehold.co/48'}" 
-                         alt="Album Art" 
-                         class="track-artwork"
-                         onerror="this.src='https://placehold.co/48'">
-                    <div class="track-details">
-                        <div class="track-name">${this.escapeHtml(track.track_name || 'Unknown Track')}</div>
-                        <div class="track-artist">${this.escapeHtml(track.artist_name || 'Unknown Artist')}</div>
-                        ${track.album_name ? `<div class="track-album">${this.escapeHtml(track.album_name)}</div>` : ''}
-                        ${track.popularity ? `<div class="track-popularity">Popularity: ${track.popularity}%</div>` : ''}
-                    </div>
-                </div>
-            `).join('');
-            
-            console.log('Top tracks updated successfully');
-        } catch (error) {
-            console.error('Failed to update top tracks:', error);
+        const tracks = await response.json();
+        console.log('Received top tracks data:', tracks);
+        
+        if (!Array.isArray(tracks)) {
+            console.error('Invalid top tracks response format:', tracks);
+            throw new Error('Invalid response format for top tracks');
+        }
+        
+        this.dataCache.topTracks = tracks;
+        
+        if (tracks.length === 0) {
+            console.log('No top tracks available');
             topTracksList.innerHTML = `
                 <div class="placeholder-text">
-                    <i class="fas fa-exclamation-circle"></i>
-                    ${error.message || 'Unable to fetch top tracks'}
+                    <i class="fas fa-music"></i>
+                    No top tracks available yet
                 </div>
             `;
             topTracksCount.textContent = '0';
+            return;
         }
+        
+        topTracksCount.textContent = tracks.length;
+        
+        topTracksList.innerHTML = tracks.map((track, index) => `
+            <div class="track-item">
+                <div class="track-rank">${index + 1}</div>
+                <img src="${track.album_art || 'https://placehold.co/48'}" 
+                     alt="Album Art" 
+                     class="track-artwork"
+                     onerror="this.src='https://placehold.co/48'">
+                <div class="track-details">
+                    <div class="track-name">${this.escapeHtml(track.track_name || 'Unknown Track')}</div>
+                    <div class="track-artist">${this.escapeHtml(track.artist_name || 'Unknown Artist')}</div>
+                    ${track.album_name ? `<div class="track-album">${this.escapeHtml(track.album_name)}</div>` : ''}
+                    ${track.popularity ? `<div class="track-popularity">Popularity: ${track.popularity}%</div>` : ''}
+                </div>
+            </div>
+        `).join('');
+        
+        console.log('Top tracks update completed successfully');
+    } catch (error) {
+        console.error('Failed to update top tracks:', error);
+        topTracksList.innerHTML = `
+            <div class="placeholder-text">
+                <i class="fas fa-exclamation-circle"></i>
+                ${error.message || 'Unable to fetch top tracks'}
+            </div>
+        `;
+        topTracksCount.textContent = '0';
     }
+}
     
     async updateTopArtists(userId) {
         const topArtistsList = document.getElementById('top-artists-list');
