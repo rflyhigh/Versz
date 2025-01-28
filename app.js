@@ -20,7 +20,6 @@ class VerszApp {
         this.checkExistingSession();
         this.setupSearch();
         this.handleRouting();
-        this.setupProfileUrlEditor();
     }
 
     setupEventListeners() {
@@ -258,125 +257,12 @@ class VerszApp {
         }
     }
 
-    setupProfileUrlEditor() {
-        if (!document.querySelector('.is-own-profile')) return;
-        const editUrlBtn = document.getElementById('edit-url-btn');
-        const urlEditor = document.getElementById('url-editor');
-        const urlInput = document.getElementById('custom-url-input');
-        const saveUrlBtn = document.getElementById('save-url-btn');
-        const cancelUrlBtn = document.getElementById('cancel-url-btn');
-        
-        if (!editUrlBtn || !urlEditor) return;
-        
-        editUrlBtn.addEventListener('click', () => {
-            urlEditor.classList.remove('hidden');
-            editUrlBtn.classList.add('hidden');
-        });
-        
-        cancelUrlBtn.addEventListener('click', () => {
-            urlEditor.classList.add('hidden');
-            editUrlBtn.classList.remove('hidden');
-            urlInput.value = '';
-            this.clearUrlValidation();
-        });
-        
-        urlInput.addEventListener('input', async (e) => {
-            const value = e.target.value.trim();
-            if (value.length < 3) {
-                this.showUrlValidation('URL must be at least 3 characters', false);
-                return;
-            }
-            
-            if (value.length > 30) {
-                this.showUrlValidation('URL must be 30 characters or less', false);
-                return;
-            }
-            
-            if (!value.match(/^[a-zA-Z0-9]+$/)) {
-                this.showUrlValidation('URL can only contain letters and numbers', false);
-                return;
-            }
-            
-            try {
-                const response = await fetch(`${config.backendUrl}/users/check-url/${value}`);
-                const data = await response.json();
-                
-                if (data.available) {
-                    this.showUrlValidation('URL is available', true);
-                    saveUrlBtn.disabled = false;
-                } else {
-                    this.showUrlValidation(data.reason, false);
-                    saveUrlBtn.disabled = true;
-                }
-            } catch (error) {
-                this.showUrlValidation('Error checking URL availability', false);
-                saveUrlBtn.disabled = true;
-            }
-        });
-        
-        saveUrlBtn.addEventListener('click', async () => {
-            const newUrl = urlInput.value.trim().toLowerCase();
-            const userId = localStorage.getItem('spotify_user_id');
-            
-            try {
-                const response = await fetch(`${config.backendUrl}/users/${userId}/custom-url`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ custom_url: newUrl })
-                });
-                
-                const data = await response.json();
-                
-                if (!response.ok) {
-                    // Handle error response from the server
-                    const errorMessage = data.detail || data.message || 'Failed to update profile URL';
-                    throw new Error(errorMessage);
-                }
-                
-                history.pushState({}, '', `/${data.custom_url}`);
-                urlEditor.classList.add('hidden');
-                editUrlBtn.classList.remove('hidden');
-                this.showSuccess('Profile URL updated successfully');
-            } catch (error) {
-                // Extract the error message, falling back to a generic message if needed
-                const errorMessage = error.message || 'An error occurred while updating the URL';
-                this.showError(errorMessage);
-            }
-        });
-    }
-    
-    showUrlValidation(message, isValid) {
-        const validation = document.getElementById('url-validation');
-        if (!validation) return;
-        
-        validation.textContent = message;
-        validation.className = `validation-message ${isValid ? 'valid' : 'invalid'}`;
-    }
-    
-    clearUrlValidation() {
-        const validation = document.getElementById('url-validation');
-        if (validation) {
-            validation.textContent = '';
-            validation.className = 'validation-message';
-        }
-    }
-
-    // Update existing navigateToProfile method
     navigateToProfile(userId) {
-        fetch(`${config.backendUrl}/users/${userId}`)
-            .then(response => response.json())
-            .then(userData => {
-                const profileUrl = userData.custom_url || userData.id;
-                const newPath = `/${profileUrl}`;
-                if (window.location.pathname !== newPath) {
-                    history.pushState({}, '', newPath);
-                    this.handleRouting();
-                }
-            })
-            .catch(error => {
-                console.error('Failed to get user profile:', error);
-                this.showError('Failed to navigate to profile');
-            });
+        const newPath = `/${userId}`;
+        if (window.location.pathname !== newPath) {
+            history.pushState({}, '', newPath);
+            this.handleRouting();
+        }
     }
 
     async handleRouting() {
@@ -416,13 +302,6 @@ class VerszApp {
     async showProfileSection(userData, isOwnProfile) {
         document.getElementById('login-section')?.classList.add('hidden');
         document.getElementById('profile-section')?.classList.remove('hidden');
-        const profileSection = document.getElementById('profile-section');
-        if (isOwnProfile) {
-            profileSection?.classList.add('is-own-profile');
-        } else {
-            profileSection?.classList.remove('is-own-profile');
-        }
-
         
         const loggedInUserId = localStorage.getItem('spotify_user_id');
         if (loggedInUserId) {
@@ -675,24 +554,7 @@ class VerszApp {
             }, 5000);
         }
     }
-    showSuccess(message) {
-        const successContainer = document.createElement('div');
-        successContainer.className = 'success-message animate__animated animate__fadeIn';
-        successContainer.textContent = message;
-        
-        const container = document.getElementById('error-container');
-        if (container) {
-            container.appendChild(successContainer);
-            
-            setTimeout(() => {
-                successContainer.classList.add('animate__fadeOut');
-                setTimeout(() => successContainer.remove(), 300);
-            }, 5000);
-        }
-    }
 }
-// Add showSuccess method, similar to showError
-
 
 // Initialize the app when the DOM is fully loaded
 document.addEventListener('DOMContentLoaded', () => {
