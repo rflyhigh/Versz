@@ -163,15 +163,31 @@ class VerszApp {
             .replace(/'/g, "&#039;");
     }
 
+   
     login() {
-        const state = Math.random().toString(36).substring(7);
+        localStorage.clear();
+
+        const state = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('');
+        
         localStorage.setItem('spotify_auth_state', state);
+        localStorage.setItem('login_pending', 'true');
         
         const redirectUri = `${window.location.origin}/callback.html`;
-        const authUrl = `https://accounts.spotify.com/authorize?client_id=${config.clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(config.scopes)}&state=${state}`;
+        const authUrl = new URL('https://accounts.spotify.com/authorize');
         
-        localStorage.setItem('login_pending', 'true');
-        window.location.href = authUrl;
+        const params = {
+            client_id: config.clientId,
+            response_type: 'code',
+            redirect_uri: redirectUri,
+            state: state,
+            scope: config.scopes,
+            show_dialog: true 
+        };
+        
+        authUrl.search = new URLSearchParams(params).toString();
+        window.location.href = authUrl.toString();
     }
 
     logout() {
@@ -198,16 +214,27 @@ class VerszApp {
         const code = urlParams.get('code');
         const state = urlParams.get('state');
         const storedState = localStorage.getItem('spotify_auth_state');
-        
-        if (!code) return;
-
-        if (state !== storedState) {
-            console.error('State mismatch');
-            this.showError('Authentication failed. Please try again.');
+        const error = urlParams.get('error');
+    
+    
+        localStorage.removeItem('spotify_auth_state');
+    
+        if (error) {
+            console.error('Spotify auth error:', error);
+            this.showError(`Authentication failed: ${error}`);
             this.logout();
             return;
         }
-        
+    
+        if (!code) return;
+    
+        if (!state || !storedState || state !== storedState) {
+            console.error('State mismatch:', { received: state, stored: storedState });
+            this.showError('Authentication failed: State verification failed');
+            this.logout();
+            return;
+        }
+    
         try {
             const response = await fetch(`${config.backendUrl}/auth/callback`, {
                 method: 'POST',
@@ -217,21 +244,25 @@ class VerszApp {
                     redirect_uri: `${window.location.origin}/callback.html`
                 })
             });
-            
-            if (!response.ok) throw new Error('Authentication failed');
-            
-            const data = await response.json();
-            if (data.success) {
-                localStorage.setItem('spotify_user_id', data.user_id);
-                localStorage.removeItem('login_pending');
-                localStorage.removeItem('spotify_auth_state');
-                window.location.href = '/';
+    
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || 'Authentication failed');
             }
-        } catch (error) {
-            console.error('Authentication failed:', error);
-            this.showError('Authentication failed. Please try again.');
+    
+            const data = await response.json();
+            
+            if (!data.user_id) {
+                throw new Error('No user ID received from server');
+            }
+    
+            localStorage.setItem('spotify_user_id', data.user_id);
             localStorage.removeItem('login_pending');
-            localStorage.removeItem('spotify_auth_state');
+            window.location.href = '/';
+        } catch (error) {
+            console.error('Authentication error:', error);
+            this.showError(error.message || 'Authentication failed. Please try again.');
+            this.logout();
         }
     }
 
