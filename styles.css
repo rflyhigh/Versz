@@ -875,3 +875,49 @@ input:focus:not(:focus-visible) {
     margin-bottom: 8px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
+.profile-header {
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    padding: 2rem;
+    margin-bottom: 2rem;
+}
+
+.profile-avatar {
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+}
+
+.profile-info {
+    flex: 1;
+}
+
+.profile-stats {
+    display: flex;
+    gap: 2rem;
+    margin-top: 1rem;
+}
+
+.stat-item {
+    text-align: center;
+}
+
+.stat-item span {
+    display: block;
+}
+
+.stat-label {
+    color: #666;
+    font-size: 0.875rem;
+}
+
+/* Fix URL editor visibility */
+.profile-url-section {
+    display: none; /* Hide by default */
+}
+
+/* Only show URL editor on own profile */
+.is-own-profile .profile-url-section {
+    display: block;
+}
