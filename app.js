@@ -580,13 +580,12 @@ class VerszApp {
             topTracksCount.textContent = '0';
         }
     }
-    
-    // Add similar error handling to updateTopArtists
+
     async updateTopArtists(userId) {
         const topArtistsList = document.getElementById('top-artists-list');
-        const topArtistsCount = document.getElementById('top-artists-count');
+        const artistsCount = document.getElementById('artists-count');
         
-        if (!topArtistsList || !topArtistsCount) return;
+        if (!topArtistsList || !artistsCount) return;
         
         try {
             const response = await fetch(`${config.backendUrl}/users/${userId}/top-artists`);
@@ -609,11 +608,11 @@ class VerszApp {
                         No top artists available yet
                     </div>
                 `;
-                topArtistsCount.textContent = '0';
+                artistsCount.textContent = '0';
                 return;
             }
             
-            topArtistsCount.textContent = artists.length;
+            artistsCount.textContent = artists.length;
             
             topArtistsList.innerHTML = artists.map((artist, index) => `
                 <div class="artist-item">
@@ -636,7 +635,7 @@ class VerszApp {
                     ${error.message || 'Unable to fetch top artists'}
                 </div>
             `;
-            topArtistsCount.textContent = '0';
+            artistsCount.textContent = '0';
         }
     }
 
