@@ -2,6 +2,8 @@ class VerszApp {
     constructor() {
         this.currentTrackInterval = null;
         this.recentTracksInterval = null;
+        this.toptrackSInterval = null;
+        this.topartisInterval = null;
         this.searchDebounceTimeout = null;
         this.dataCache = {
             recentTracks: [],
@@ -240,6 +242,14 @@ class VerszApp {
             clearInterval(this.recentTracksInterval);
             this.recentTracksInterval = null;
         }
+        if (this.topartisInterval) {
+            clearInterval(this.topartisInterval);
+            this.topartisInterval = null;
+        }
+        if (this.toptrackSInterval) {
+            clearInterval(this.toptrackSInterval);
+            this.toptrackSInterval = null;
+        }
     }
 
     async checkAuthCallback() {
@@ -416,6 +426,8 @@ class VerszApp {
         
         this.currentTrackInterval = setInterval(() => this.updateCurrentTrack(userId), 30000);
         this.recentTracksInterval = setInterval(() => this.updateRecentTracks(userId), 60000);
+        this.topartisInterval = setInterval(() =>this.updateTopArtists((userId), 60000));
+        this.toptrackSInterval = setInterval(() =>this.updateTopTracks((userId), 60000));
     }
 
     async updateCurrentTrack(userId) {
