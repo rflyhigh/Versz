@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 import json
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
+from pydantic import BaseModel
 
 load_dotenv()
 
@@ -221,22 +222,23 @@ async def check_custom_url(custom_url: str):
             "reason": "URL is already taken" if exists else None
         }
 
+class CustomUrlUpdate(BaseModel):
+    custom_url: str
+
 @app.post("/users/{user_id}/custom-url")
-async def update_custom_url(user_id: str, custom_url: str):
-    # Validate URL format
+async def update_custom_url(user_id: str, url_data: CustomUrlUpdate):
+    custom_url = url_data.custom_url
+    
     if not custom_url.isalnum() or len(custom_url) < 3 or len(custom_url) > 30:
         raise HTTPException(status_code=422, detail="Invalid URL format")
     
-    # Convert to lowercase to ensure consistency
     custom_url = custom_url.lower()
     
-    # Check reserved words
     reserved_words = {'login', 'admin', 'settings', 'profile', 'home', 'search', 'api'}
     if custom_url.lower() in reserved_words:
         raise HTTPException(status_code=422, detail="This URL is reserved")
     
     async with aiosqlite.connect(DATABASE_PATH) as db:
-        # Check if URL is already taken
         cursor = await db.execute(
             "SELECT 1 FROM users WHERE custom_url = ? AND spotify_id != ?",
             (custom_url, user_id)
@@ -246,7 +248,6 @@ async def update_custom_url(user_id: str, custom_url: str):
         if exists:
             raise HTTPException(status_code=422, detail="URL is already taken")
         
-        # Update the custom URL
         await db.execute(
             "UPDATE users SET custom_url = ? WHERE spotify_id = ?",
             (custom_url, user_id)
@@ -254,7 +255,6 @@ async def update_custom_url(user_id: str, custom_url: str):
         await db.commit()
         
         return {"success": True, "custom_url": custom_url}
-
 # Modify the existing get_user endpoint to handle custom URLs
 @app.get("/users/{user_identifier}")
 async def get_user(user_identifier: str):
