@@ -20,6 +20,7 @@ class VerszApp {
         this.checkExistingSession();
         this.setupSearch();
         this.handleRouting();
+        this.setupCustomUrlInput();
     }
 
     setupEventListeners() {
@@ -163,9 +164,57 @@ class VerszApp {
             .replace(/'/g, "&#039;");
     }
 
-    login() {
+    setupCustomUrlInput() {
+        const urlInput = document.getElementById('custom-url-input');
+        const urlStatus = document.getElementById('url-status');
+        
+        if (!urlInput || !urlStatus) return;
+        
+        let debounceTimer;
+        urlInput.addEventListener('input', (e) => {
+            clearTimeout(debounceTimer);
+            const url = e.target.value.trim();
+            
+            if (url.length < 3) {
+                urlStatus.textContent = 'URL must be at least 3 characters';
+                urlStatus.className = 'text-red-500';
+                return;
+            }
+            
+            debounceTimer = setTimeout(async () => {
+                try {
+                    const response = await fetch(`${config.backendUrl}/check-url/${url}`);
+                    const data = await response.json();
+                    
+                    if (data.available) {
+                        urlStatus.textContent = 'URL is available!';
+                        urlStatus.className = 'text-green-500';
+                        urlInput.dataset.valid = 'true';
+                    } else {
+                        urlStatus.textContent = data.reason || 'URL is already taken';
+                        urlStatus.className = 'text-red-500';
+                        urlInput.dataset.valid = 'false';
+                    }
+                } catch (error) {
+                    console.error('URL check failed:', error);
+                    urlStatus.textContent = 'Error checking URL availability';
+                    urlStatus.className = 'text-red-500';
+                }
+            }, 300);
+        });
+    }
+
+    async login() {
+        const urlInput = document.getElementById('custom-url-input');
+        if (!urlInput || urlInput.dataset.valid !== 'true') {
+            this.showError('Please choose a valid URL');
+            return;
+        }
+
+        const customUrl = urlInput.value.trim();
         const state = Math.random().toString(36).substring(7);
         localStorage.setItem('spotify_auth_state', state);
+        localStorage.setItem('pending_custom_url', customUrl);
         
         const redirectUri = `${window.location.origin}/callback.html`;
         const authUrl = `https://accounts.spotify.com/authorize?client_id=${config.clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(config.scopes)}&state=${state}`;
@@ -198,6 +247,7 @@ class VerszApp {
         const code = urlParams.get('code');
         const state = urlParams.get('state');
         const storedState = localStorage.getItem('spotify_auth_state');
+        const customUrl = localStorage.getItem('pending_custom_url');
         
         if (!code) return;
 
@@ -214,27 +264,32 @@ class VerszApp {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     code: code,
+                    custom_url: customUrl,
                     redirect_uri: `${window.location.origin}/callback.html`
                 })
             });
             
-            if (!response.ok) throw new Error('Authentication failed');
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Authentication failed');
+            }
             
             const data = await response.json();
             if (data.success) {
                 localStorage.setItem('spotify_user_id', data.user_id);
                 localStorage.removeItem('login_pending');
                 localStorage.removeItem('spotify_auth_state');
+                localStorage.removeItem('pending_custom_url');
                 window.location.href = '/';
             }
         } catch (error) {
             console.error('Authentication failed:', error);
-            this.showError('Authentication failed. Please try again.');
+            this.showError(error.message || 'Authentication failed. Please try again.');
             localStorage.removeItem('login_pending');
             localStorage.removeItem('spotify_auth_state');
+            localStorage.removeItem('pending_custom_url');
         }
     }
-
     async checkExistingSession() {
         const userId = localStorage.getItem('spotify_user_id');
         const loginPending = localStorage.getItem('login_pending');
