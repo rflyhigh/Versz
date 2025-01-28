@@ -25,7 +25,7 @@ app.add_middleware(
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 SPOTIFY_REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI")
-DATABASE_PATH = "spotify1.db"
+DATABASE_PATH = "spotify0.db"
 
 scheduler = AsyncIOScheduler()
 
@@ -35,6 +35,7 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
                 spotify_id TEXT UNIQUE,
+                custom_url TEXT UNIQUE,
                 access_token TEXT,
                 refresh_token TEXT,
                 token_expiry TIMESTAMP,
@@ -82,6 +83,11 @@ async def init_db():
                 popularity INTEGER,
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
+        """)
+        
+        # Create index for custom_url lookups
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_custom_url ON users(custom_url)
         """)
         
         await db.commit()
@@ -164,10 +170,12 @@ async def spotify_callback(request: Request):
             async with aiosqlite.connect(DATABASE_PATH) as db:
                 await db.execute("""
                     INSERT OR REPLACE INTO users 
-                    (spotify_id, access_token, refresh_token, token_expiry, display_name, avatar_url)
-                    VALUES (?, ?, ?, datetime('now', '+1 hour'), ?, ?)
+                    (spotify_id, custom_url, access_token, refresh_token, token_expiry, display_name, avatar_url)
+                    VALUES (?, COALESCE((SELECT custom_url FROM users WHERE spotify_id = ?), ?), ?, ?, datetime('now', '+1 hour'), ?, ?)
                 """, (
                     user_data["id"],
+                    user_data["id"],
+                    user_data["id"],  # Default custom_url is the spotify_id
                     token_data["access_token"],
                     token_data.get("refresh_token"),
                     user_data.get("display_name", user_data["id"]),
@@ -175,23 +183,80 @@ async def spotify_callback(request: Request):
                 ))
                 await db.commit()
             
-            return {
-                "success": True,
-                "user_id": user_data["id"]
-            }
-            
     except Exception as e:
         print(f"Callback error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/users/check-url/{custom_url}")
+async def check_custom_url(custom_url: str):
+    if not custom_url.isalnum():
+        return {"available": False, "reason": "URL must contain only letters and numbers"}
+    
+    if len(custom_url) < 3 or len(custom_url) > 30:
+        return {"available": False, "reason": "URL must be between 3 and 30 characters"}
+
+    # List of reserved words that can't be used as URLs
+    reserved_words = {'login', 'admin', 'settings', 'profile', 'callback', 'api', 'auth'}
+    if custom_url.lower() in reserved_words:
+        return {"available": False, "reason": "This URL is reserved"}
+
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cursor = await db.execute(
+            "SELECT 1 FROM users WHERE LOWER(custom_url) = LOWER(?)",
+            (custom_url,)
+        )
+        exists = await cursor.fetchone()
+        return {"available": not bool(exists)}
+
+# Add new endpoint to update custom URL
+@app.put("/users/{user_id}/custom-url")
+async def update_custom_url(user_id: str, custom_url: str):
+    if not custom_url.isalnum():
+        raise HTTPException(status_code=400, detail="URL must contain only letters and numbers")
+    
+    if len(custom_url) < 3 or len(custom_url) > 30:
+        raise HTTPException(status_code=400, detail="URL must be between 3 and 30 characters")
+
+    reserved_words = {'login', 'admin', 'settings', 'profile', 'callback', 'api', 'auth'}
+    if custom_url.lower() in reserved_words:
+        raise HTTPException(status_code=400, detail="This URL is reserved")
+
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        # Check if URL is already taken
+        cursor = await db.execute(
+            "SELECT 1 FROM users WHERE LOWER(custom_url) = LOWER(?) AND spotify_id != ?",
+            (custom_url, user_id)
+        )
+        exists = await cursor.fetchone()
+        if exists:
+            raise HTTPException(status_code=400, detail="URL is already taken")
+
+        # Update the custom URL
+        await db.execute(
+            "UPDATE users SET custom_url = ? WHERE spotify_id = ?",
+            (custom_url, user_id)
+        )
+        await db.commit()
+        return {"success": True}
+
+# Update the existing user endpoint to include custom_url
 @app.get("/users/{user_id}")
 async def get_user(user_id: str):
     async with aiosqlite.connect(DATABASE_PATH) as db:
+        # Try to find user by custom URL first
         cursor = await db.execute(
-            "SELECT spotify_id, display_name, avatar_url FROM users WHERE spotify_id = ?",
+            "SELECT spotify_id, display_name, avatar_url, custom_url FROM users WHERE LOWER(custom_url) = LOWER(?)",
             (user_id,)
         )
         user = await cursor.fetchone()
+        
+        if not user:
+            # If not found, try spotify_id
+            cursor = await db.execute(
+                "SELECT spotify_id, display_name, avatar_url, custom_url FROM users WHERE spotify_id = ?",
+                (user_id,)
+            )
+            user = await cursor.fetchone()
         
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
@@ -199,7 +264,8 @@ async def get_user(user_id: str):
         return {
             "id": user[0],
             "display_name": user[1],
-            "avatar_url": user[2]
+            "avatar_url": user[2],
+            "custom_url": user[3]
         }
 
 @app.get("/users/{user_id}/recent-tracks")
