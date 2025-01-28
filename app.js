@@ -20,6 +20,7 @@ class VerszApp {
         this.checkExistingSession();
         this.setupSearch();
         this.handleRouting();
+        this.setupProfileUrlEditor();
     }
 
     setupEventListeners() {
@@ -257,12 +258,120 @@ class VerszApp {
         }
     }
 
-    navigateToProfile(userId) {
-        const newPath = `/${userId}`;
-        if (window.location.pathname !== newPath) {
-            history.pushState({}, '', newPath);
-            this.handleRouting();
+    setupProfileUrlEditor() {
+        const editUrlBtn = document.getElementById('edit-url-btn');
+        const urlEditor = document.getElementById('url-editor');
+        const urlInput = document.getElementById('custom-url-input');
+        const saveUrlBtn = document.getElementById('save-url-btn');
+        const cancelUrlBtn = document.getElementById('cancel-url-btn');
+        
+        if (!editUrlBtn || !urlEditor) return;
+        
+        editUrlBtn.addEventListener('click', () => {
+            urlEditor.classList.remove('hidden');
+            editUrlBtn.classList.add('hidden');
+        });
+        
+        cancelUrlBtn.addEventListener('click', () => {
+            urlEditor.classList.add('hidden');
+            editUrlBtn.classList.remove('hidden');
+            urlInput.value = '';
+            this.clearUrlValidation();
+        });
+        
+        urlInput.addEventListener('input', async (e) => {
+            const value = e.target.value.trim();
+            if (value.length < 3) {
+                this.showUrlValidation('URL must be at least 3 characters', false);
+                return;
+            }
+            
+            if (value.length > 30) {
+                this.showUrlValidation('URL must be 30 characters or less', false);
+                return;
+            }
+            
+            if (!value.match(/^[a-zA-Z0-9]+$/)) {
+                this.showUrlValidation('URL can only contain letters and numbers', false);
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${config.backendUrl}/users/check-url/${value}`);
+                const data = await response.json();
+                
+                if (data.available) {
+                    this.showUrlValidation('URL is available', true);
+                    saveUrlBtn.disabled = false;
+                } else {
+                    this.showUrlValidation(data.reason, false);
+                    saveUrlBtn.disabled = true;
+                }
+            } catch (error) {
+                this.showUrlValidation('Error checking URL availability', false);
+                saveUrlBtn.disabled = true;
+            }
+        });
+        
+        saveUrlBtn.addEventListener('click', async () => {
+            const newUrl = urlInput.value.trim();
+            const userId = localStorage.getItem('spotify_user_id');
+            
+            try {
+                const response = await fetch(`${config.backendUrl}/users/${userId}/custom-url`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ custom_url: newUrl })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    history.pushState({}, '', `/${data.custom_url}`);
+                    urlEditor.classList.add('hidden');
+                    editUrlBtn.classList.remove('hidden');
+                    this.showSuccess('Profile URL updated successfully');
+                } else {
+                    const error = await response.json();
+                    this.showError(error.detail);
+                }
+            } catch (error) {
+                this.showError('Failed to update profile URL');
+            }
+        });
+    }
+    
+    showUrlValidation(message, isValid) {
+        const validation = document.getElementById('url-validation');
+        if (!validation) return;
+        
+        validation.textContent = message;
+        validation.className = `validation-message ${isValid ? 'valid' : 'invalid'}`;
+    }
+    
+    clearUrlValidation() {
+        const validation = document.getElementById('url-validation');
+        if (validation) {
+            validation.textContent = '';
+            validation.className = 'validation-message';
         }
+    }
+
+    // Update existing navigateToProfile method
+    navigateToProfile(userId) {
+        fetch(`${config.backendUrl}/users/${userId}`)
+            .then(response => response.json())
+            .then(userData => {
+                const profileUrl = userData.custom_url || userData.id;
+                const newPath = `/${profileUrl}`;
+                if (window.location.pathname !== newPath) {
+                    history.pushState({}, '', newPath);
+                    this.handleRouting();
+                }
+            })
+            .catch(error => {
+                console.error('Failed to get user profile:', error);
+                this.showError('Failed to navigate to profile');
+            });
     }
 
     async handleRouting() {
