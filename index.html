@@ -37,33 +37,51 @@
     </nav>
 
     <main>
-        <div id="login-section" class="center animate__animated animate__fadeIn">
-        <div class="login-container">
-            <div class="login-header">
-                <i class="fas fa-headphones-alt header-icon"></i>
-                <h1>Track Your Music Journey</h1>
-                <p>Connect with Spotify to share your listening activity with friends</p>
-            </div>
-            <div class="url-input-container">
-                <label for="custom-url-input">Choose your profile URL:</label>
-                <div class="url-input-wrapper">
-                    <span class="url-prefix">versz.fun/</span>
-                    <input 
-                        type="text" 
-                        id="custom-url-input" 
-                        placeholder="your-username"
-                        pattern="[a-zA-Z0-9_-]{3,30}"
-                        required
-                    >
-                </div>
-                <p id="url-status" class="text-sm"></p>
-            </div>
-            <button id="login-btn" class="spotify-btn">
+
+<div id="login-section" class="center animate__animated animate__fadeIn">
+    <div class="login-container">
+        <div class="login-header">
+            <i class="fas fa-headphones-alt header-icon"></i>
+            <h1>Track Your Music Journey</h1>
+            <p>Connect with Spotify to share your listening activity with friends</p>
+        </div>
+
+        <div class="login-options">
+            <button id="quick-login-btn" class="spotify-btn">
                 <i class="fab fa-spotify"></i>
-                Continue with Spotify
+                Quick Login with Spotify
+            </button>
+            
+            <div class="divider">
+                <span>OR</span>
+            </div>
+
+            <button id="custom-url-toggle" class="secondary-btn">
+                <i class="fas fa-link"></i>
+                Choose Custom Profile URL
+            </button>
+        </div>
+
+        <div id="custom-url-section" class="url-input-container hidden animate__animated animate__fadeIn">
+            <label for="custom-url-input">Choose your profile URL:</label>
+            <div class="url-input-wrapper">
+                <span class="url-prefix">versz.fun/</span>
+                <input 
+                    type="text" 
+                    id="custom-url-input" 
+                    placeholder="your-username"
+                    pattern="[a-zA-Z0-9_-]{3,30}"
+                >
+            </div>
+            <p id="url-status" class="text-sm"></p>
+            
+            <button id="custom-login-btn" class="spotify-btn">
+                <i class="fab fa-spotify"></i>
+                Continue with Custom URL
             </button>
         </div>
     </div>
+</div>
 
         <div id="profile-section" class="hidden animate__animated animate__fadeIn">
             <div class="profile-header">
