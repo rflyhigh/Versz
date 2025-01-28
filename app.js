@@ -242,13 +242,13 @@ class VerszApp {
             clearInterval(this.recentTracksInterval);
             this.recentTracksInterval = null;
         }
+        if (this.topTracksInterval) { // Fixed variable name
+            clearInterval(this.topTracksInterval);
+            this.topTracksInterval = null;
+        }
         if (this.topartisInterval) {
             clearInterval(this.topartisInterval);
             this.topartisInterval = null;
-        }
-        if (this.toptrackSInterval) {
-            clearInterval(this.toptrackSInterval);
-            this.toptrackSInterval = null;
         }
     }
 
@@ -417,7 +417,7 @@ class VerszApp {
     
     async startTracking(userId) {
         this.clearIntervals();
-   
+    
         try {
             await Promise.all([
                 this.updateCurrentTrack(userId),
@@ -426,11 +426,11 @@ class VerszApp {
                 this.updateTopArtists(userId)
             ]);
             
-   
+            // Fixed the variable name from toptrackSInterval to topTracksInterval
             this.currentTrackInterval = setInterval(() => this.updateCurrentTrack(userId), 30000);
             this.recentTracksInterval = setInterval(() => this.updateRecentTracks(userId), 60000);
+            this.topTracksInterval = setInterval(() => this.updateTopTracks(userId), 60000); // Fixed variable name
             this.topartisInterval = setInterval(() => this.updateTopArtists(userId), 60000);
-            this.toptrackSInterval = setInterval(() => this.updateTopTracks(userId), 60000);
         } catch (error) {
             console.error('Error in startTracking:', error);
             this.showError('Failed to start tracking. Please try refreshing the page.');
