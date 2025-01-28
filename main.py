@@ -29,7 +29,7 @@ DATABASE_PATH = "spotify10.db"
 
 scheduler = AsyncIOScheduler()
 
-sync def init_db():
+async def init_db():
     async with aiosqlite.connect(DATABASE_PATH) as db:
         # First create the base users table if it doesn't exist
         await db.execute("""
