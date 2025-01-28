@@ -136,10 +136,10 @@ class VerszApp {
             } else {
                 searchResults.innerHTML = users.map(user => `
                     <div class="search-result-item" data-userid="${user.id}">
-                        <img src="${user.avatar_url || '/api/placeholder/32/32'}" 
+                        <img src="${user.avatar_url || 'https://placehold.co/32'}" 
                              alt="Avatar" 
                              class="search-avatar"
-                             onerror="this.src='/api/placeholder/32/32'">
+                             onerror="this.src='https://placehold.co/32'">
                         <div class="search-user-info">
                             <div class="search-username">${this.escapeHtml(user.display_name || user.id)}</div>
                         </div>
@@ -401,7 +401,7 @@ class VerszApp {
         const profileLink = document.getElementById('profile-link');
         
         if (username) username.textContent = userData.display_name || userData.id;
-        if (userAvatar) userAvatar.src = userData.avatar_url || '/api/placeholder/32/32';
+        if (userAvatar) userAvatar.src = userData.avatar_url || 'https://placehold.co/32';
         if (profileLink) profileLink.href = `/${userData.id}`;
     }
 
@@ -410,7 +410,7 @@ class VerszApp {
         const profileAvatar = document.getElementById('profile-avatar');
         
         if (profileUsername) profileUsername.textContent = userData.display_name || userData.id;
-        if (profileAvatar) profileAvatar.src = userData.avatar_url || '/api/placeholder/96/96';
+        if (profileAvatar) profileAvatar.src = userData.avatar_url || 'https://placehold.co/96';
         document.title = `${userData.display_name || userData.id} - versz`;
     }
 
@@ -450,10 +450,10 @@ class VerszApp {
             if (data.is_playing) {
                 currentTrackInfo.innerHTML = `
                     <div class="track-info">
-                        <img src="${data.album_art || '/api/placeholder/64/64'}" 
+                        <img src="${data.album_art || 'https://placehold.co/64'}" 
                              alt="Album Art" 
                              class="track-artwork"
-                             onerror="this.src='/api/placeholder/64/64'">
+                             onerror="this.src='https://placehold.co/64'">
                         <div class="track-details">
                             <div class="track-name">${this.escapeHtml(data.track_name)}</div>
                             <div class="track-artist">${this.escapeHtml(data.artist_name)}</div>
@@ -498,9 +498,9 @@ class VerszApp {
             
             tracksList.innerHTML = tracks.map(track => `
                 <div class="track-item">
-                    <img src="${track.album_art || '/api/placeholder/48/48'}" alt="Album Art" 
+                    <img src="${track.album_art || 'https://placehold.co/48'}" alt="Album Art" 
                 class="track-artwork"
-                onerror="this.src='/api/placeholder/48/48'">
+                onerror="this.src='https://placehold.co/48'">
                 <div class="track-details">
                     <div class="track-name">${this.escapeHtml(track.track_name)}</div>
                     <div class="track-artist">${this.escapeHtml(track.artist_name)}</div>
@@ -558,10 +558,10 @@ class VerszApp {
             topTracksList.innerHTML = tracks.map((track, index) => `
                 <div class="track-item">
                     <div class="track-rank">${index + 1}</div>
-                    <img src="${track.album_art || '/api/placeholder/48/48'}" 
+                    <img src="${track.album_art || 'https://placehold.co/48'}" 
                          alt="Album Art" 
                          class="track-artwork"
-                         onerror="this.src='/api/placeholder/48/48'">
+                         onerror="this.src='https://placehold.co/48'">
                     <div class="track-details">
                         <div class="track-name">${this.escapeHtml(track.track_name)}</div>
                         <div class="track-artist">${this.escapeHtml(track.artist_name)}</div>
@@ -618,10 +618,10 @@ class VerszApp {
             topArtistsList.innerHTML = artists.map((artist, index) => `
                 <div class="artist-item">
                     <div class="artist-rank">${index + 1}</div>
-                    <img src="${artist.artist_image || '/api/placeholder/64/64'}" 
+                    <img src="${artist.artist_image || 'https://placehold.co/64'}" 
                          alt="Artist" 
                          class="artist-artwork"
-                         onerror="this.src='/api/placeholder/64/64'">
+                         onerror="this.src='https://placehold.co/64'">
                     <div class="artist-details">
                         <div class="artist-name">${this.escapeHtml(artist.artist_name)}</div>
                         <div class="artist-popularity">Popularity: ${artist.popularity}%</div>
