@@ -51,53 +51,25 @@
             </div>
         </div>
 
-        <div id="profile-section" class="hidden">
-    <div class="profile-header">
-        <img id="profile-avatar" src="/api/placeholder/96/96" alt="Profile" class="profile-avatar">
-        <div class="profile-info">
-            <h1 id="profile-username"></h1>
-            <div class="profile-stats">
-                <div class="stat-item">
-                    <span id="tracks-count">0</span>
-                    <span class="stat-label">Tracks</span>
+        <div id="profile-section" class="hidden animate__animated animate__fadeIn">
+            <div class="profile-header">
+                <div class="profile-avatar-wrapper">
+                    <img id="profile-avatar" src="/api/placeholder/96/96" alt="Profile">
                 </div>
-                <div class="stat-item">
-                    <span id="top-tracks-count">0</span>
-                    <span class="stat-label">Top Tracks</span>
-                </div>
-                <div class="stat-item">
-                    <span id="top-artists-count">0</span>
-                    <span class="stat-label">Top Artists</span>
+                <div class="profile-info">
+                    <h1 id="profile-username"></h1>
+                    <div class="stats">
+                        <div class="stat">
+                            <span id="tracks-count">0</span>
+                            <label>Tracks</label>
+                        </div>
+                        <div class="stat">
+                            <span id="artists-count">0</span>
+                            <label>Artists</label>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </div>
-    </div>
-
-    <!-- URL editor should only show for own profile -->
-    <div class="profile-url-section">
-        <div class="current-url">
-            <span id="profile-url"></span>
-            <button id="edit-url-btn" class="icon-button" title="Edit profile URL">
-                <i class="fas fa-pencil"></i>
-            </button>
-        </div>
-        
-        <div id="url-editor" class="url-editor hidden">
-            <div class="input-group">
-                <span class="url-prefix">versz.fun/</span>
-                <input type="text" id="custom-url-input" 
-                       placeholder="Choose your custom URL"
-                       maxlength="30"
-                       pattern="[a-zA-Z0-9]+"
-                       required>
-            </div>
-            <div id="url-validation" class="validation-message"></div>
-            <div class="url-editor-buttons">
-                <button id="save-url-btn" class="primary-btn" disabled>Save</button>
-                <button id="cancel-url-btn" class="secondary-btn">Cancel</button>
-            </div>
-        </div>
-    </div>
     
             <div class="content-grid">
                 <div id="current-track" class="track-card animate__animated animate__fadeIn">
