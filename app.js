@@ -419,18 +419,28 @@ class VerszApp {
         this.clearIntervals();
     
         try {
-            await Promise.all([
+            // First, make all initial requests
+            const [currentTrack, recentTracks, topTracks, topArtists] = await Promise.all([
                 this.updateCurrentTrack(userId),
                 this.updateRecentTracks(userId),
-                this.updateTopTracks(userId),    // Make sure this function exists
+                this.updateTopTracks(userId),    
                 this.updateTopArtists(userId)
             ]);
-            
-            // Set up intervals with correct variable names
+    
+            // Set up intervals for periodic updates
             this.currentTrackInterval = setInterval(() => this.updateCurrentTrack(userId), 30000);
             this.recentTracksInterval = setInterval(() => this.updateRecentTracks(userId), 60000);
-            this.topTracksInterval = setInterval(() => this.updateTopTracks(userId), 60000);    // Fixed variable name
+            this.topTracksInterval = setInterval(() => this.updateTopTracks(userId), 60000);
             this.topartisInterval = setInterval(() => this.updateTopArtists(userId), 60000);
+    
+            // Add some debug logging
+            console.log('Tracking started for user:', userId);
+            console.log('Initial data loaded:', {
+                currentTrack: !!currentTrack,
+                recentTracks: !!recentTracks,
+                topTracks: !!topTracks,
+                topArtists: !!topArtists
+            });
         } catch (error) {
             console.error('Error in startTracking:', error);
             this.showError('Failed to start tracking. Please try refreshing the page.');
@@ -520,23 +530,35 @@ class VerszApp {
     }
 
     async updateTopTracks(userId) {
+        console.log('Updating top tracks for user:', userId);
         const topTracksList = document.getElementById('top-tracks-list');
         const topTracksCount = document.getElementById('top-tracks-count');
         
-        if (!topTracksList || !topTracksCount) return;
+        if (!topTracksList || !topTracksCount) {
+            console.error('Required DOM elements not found:', {
+                topTracksList: !!topTracksList,
+                topTracksCount: !!topTracksCount
+            });
+            return;
+        }
         
         try {
+            console.log('Fetching top tracks from:', `${config.backendUrl}/users/${userId}/top-tracks`);
             const response = await fetch(`${config.backendUrl}/users/${userId}/top-tracks`);
+            
             if (!response.ok) {
                 throw new Error(`Failed to fetch top tracks: ${response.status}`);
             }
             
             const tracks = await response.json();
+            console.log('Received top tracks:', tracks);
+    
             if (!Array.isArray(tracks)) {
                 throw new Error('Invalid response format for top tracks');
             }
             
             this.dataCache.topTracks = tracks;
+            topTracksCount.textContent = tracks.length;
             
             if (tracks.length === 0) {
                 topTracksList.innerHTML = `
@@ -545,13 +567,9 @@ class VerszApp {
                         No top tracks available yet
                     </div>
                 `;
-                topTracksCount.textContent = '0';
                 return;
             }
             
-            topTracksCount.textContent = tracks.length;
-            
-            // Create and append each track element
             topTracksList.innerHTML = tracks.map((track, index) => `
                 <div class="track-item">
                     <div class="track-rank">${index + 1}</div>
@@ -563,14 +581,12 @@ class VerszApp {
                         <div class="track-name">${this.escapeHtml(track.track_name || 'Unknown Track')}</div>
                         <div class="track-artist">${this.escapeHtml(track.artist_name || 'Unknown Artist')}</div>
                         ${track.album_name ? `<div class="track-album">${this.escapeHtml(track.album_name)}</div>` : ''}
-                        ${track.popularity ? `<div class="track-popularity">
-                            <div class="popularity-bar" style="width: ${track.popularity}%"></div>
-                            <span>${track.popularity}%</span>
-                        </div>` : ''}
+                        ${track.popularity ? `<div class="track-popularity">Popularity: ${track.popularity}%</div>` : ''}
                     </div>
                 </div>
             `).join('');
             
+            console.log('Top tracks updated successfully');
         } catch (error) {
             console.error('Failed to update top tracks:', error);
             topTracksList.innerHTML = `
@@ -582,7 +598,6 @@ class VerszApp {
             topTracksCount.textContent = '0';
         }
     }
-
     
     async updateTopArtists(userId) {
         const topArtistsList = document.getElementById('top-artists-list');
