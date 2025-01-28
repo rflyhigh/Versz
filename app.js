@@ -2,7 +2,7 @@ class VerszApp {
     constructor() {
         this.currentTrackInterval = null;
         this.recentTracksInterval = null;
-        this.topTrackSInterval = null;
+        this.topTracksInterval = null;
         this.topartisInterval = null;
         this.searchDebounceTimeout = null;
         this.dataCache = {
@@ -242,7 +242,7 @@ class VerszApp {
             clearInterval(this.recentTracksInterval);
             this.recentTracksInterval = null;
         }
-        if (this.topTracksInterval) { // Fixed variable name
+        if (this.topTracksInterval) {    // Fixed variable name
             clearInterval(this.topTracksInterval);
             this.topTracksInterval = null;
         }
@@ -422,21 +422,20 @@ class VerszApp {
             await Promise.all([
                 this.updateCurrentTrack(userId),
                 this.updateRecentTracks(userId),
-                this.updateTopTracks(userId),
+                this.updateTopTracks(userId),    // Make sure this function exists
                 this.updateTopArtists(userId)
             ]);
             
-            
+            // Set up intervals with correct variable names
             this.currentTrackInterval = setInterval(() => this.updateCurrentTrack(userId), 30000);
             this.recentTracksInterval = setInterval(() => this.updateRecentTracks(userId), 60000);
-            this.topTracksInterval = setInterval(() => this.updateTopTracks(userId), 60000); // Fixed variable name
+            this.topTracksInterval = setInterval(() => this.updateTopTracks(userId), 60000);    // Fixed variable name
             this.topartisInterval = setInterval(() => this.updateTopArtists(userId), 60000);
         } catch (error) {
             console.error('Error in startTracking:', error);
             this.showError('Failed to start tracking. Please try refreshing the page.');
         }
     }
-
     async updateCurrentTrack(userId) {
         const currentTrackInfo = document.getElementById('current-track-info');
         if (!currentTrackInfo) return;
