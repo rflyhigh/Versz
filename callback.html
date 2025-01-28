@@ -10,6 +10,7 @@
             background-color: #121212;
             color: white;
             display: flex;
+            flex-direction: column;
             justify-content: center;
             align-items: center;
             height: 100vh;
@@ -23,7 +24,17 @@
             border-radius: 50%;
             animation: rotation 1s linear infinite;
         }
-
+        .message {
+            margin-top: 20px;
+            font-size: 16px;
+            text-align: center;
+        }
+        .error {
+            color: #ff4444;
+            margin-top: 20px;
+            text-align: center;
+            max-width: 80%;
+        }
         @keyframes rotation {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
@@ -32,9 +43,46 @@
 </head>
 <body>
     <div class="loader"></div>
-    <script src="config.js"></script>
+    <div id="message" class="message">Authenticating...</div>
+    <div id="error" class="error"></div>
+    
     <script>
-        window.location.href = '/' + window.location.search;
+        // Handle authentication flow
+        function handleCallback() {
+            const params = new URLSearchParams(window.location.search);
+            const error = params.get('error');
+            
+            if (error) {
+                document.getElementById('loader').style.display = 'none';
+                document.getElementById('error').textContent = `Authentication failed: ${error}`;
+                setTimeout(() => { window.location.href = '/'; }, 3000);
+                return;
+            }
+            
+            // Store the current path for redirect after authentication
+            if (window.location.pathname !== '/callback.html') {
+                sessionStorage.setItem('redirect_path', window.location.pathname);
+            }
+            
+            // Redirect to home page with query parameters
+            const redirectUrl = '/' + window.location.search;
+            
+            // Add a small delay to ensure storage is complete
+            setTimeout(() => {
+                window.location.replace(redirectUrl);
+            }, 100);
+        }
+
+        // Execute when DOM is loaded
+        document.addEventListener('DOMContentLoaded', () => {
+            try {
+                handleCallback();
+            } catch (error) {
+                document.getElementById('loader').style.display = 'none';
+                document.getElementById('error').textContent = 'An unexpected error occurred. Redirecting...';
+                setTimeout(() => { window.location.href = '/'; }, 3000);
+            }
+        });
     </script>
 </body>
 </html>
