@@ -163,31 +163,15 @@ class VerszApp {
             .replace(/'/g, "&#039;");
     }
 
-   
     login() {
-        localStorage.clear();
-
-        const state = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-            .map(b => b.toString(16).padStart(2, '0'))
-            .join('');
-        
+        const state = Math.random().toString(36).substring(7);
         localStorage.setItem('spotify_auth_state', state);
-        localStorage.setItem('login_pending', 'true');
         
         const redirectUri = `${window.location.origin}/callback.html`;
-        const authUrl = new URL('https://accounts.spotify.com/authorize');
+        const authUrl = `https://accounts.spotify.com/authorize?client_id=${config.clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(config.scopes)}&state=${state}`;
         
-        const params = {
-            client_id: config.clientId,
-            response_type: 'code',
-            redirect_uri: redirectUri,
-            state: state,
-            scope: config.scopes,
-            show_dialog: true 
-        };
-        
-        authUrl.search = new URLSearchParams(params).toString();
-        window.location.href = authUrl.toString();
+        localStorage.setItem('login_pending', 'true');
+        window.location.href = authUrl;
     }
 
     logout() {
@@ -214,27 +198,16 @@ class VerszApp {
         const code = urlParams.get('code');
         const state = urlParams.get('state');
         const storedState = localStorage.getItem('spotify_auth_state');
-        const error = urlParams.get('error');
-    
-    
-        localStorage.removeItem('spotify_auth_state');
-    
-        if (error) {
-            console.error('Spotify auth error:', error);
-            this.showError(`Authentication failed: ${error}`);
-            this.logout();
-            return;
-        }
-    
+        
         if (!code) return;
-    
-        if (!state || !storedState || state !== storedState) {
-            console.error('State mismatch:', { received: state, stored: storedState });
-            this.showError('Authentication failed: State verification failed');
+
+        if (state !== storedState) {
+            console.error('State mismatch');
+            this.showError('Authentication failed. Please try again.');
             this.logout();
             return;
         }
-    
+        
         try {
             const response = await fetch(`${config.backendUrl}/auth/callback`, {
                 method: 'POST',
@@ -244,25 +217,21 @@ class VerszApp {
                     redirect_uri: `${window.location.origin}/callback.html`
                 })
             });
-    
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.detail || 'Authentication failed');
-            }
-    
-            const data = await response.json();
             
-            if (!data.user_id) {
-                throw new Error('No user ID received from server');
+            if (!response.ok) throw new Error('Authentication failed');
+            
+            const data = await response.json();
+            if (data.success) {
+                localStorage.setItem('spotify_user_id', data.user_id);
+                localStorage.removeItem('login_pending');
+                localStorage.removeItem('spotify_auth_state');
+                window.location.href = '/';
             }
-    
-            localStorage.setItem('spotify_user_id', data.user_id);
-            localStorage.removeItem('login_pending');
-            window.location.href = '/';
         } catch (error) {
-            console.error('Authentication error:', error);
-            this.showError(error.message || 'Authentication failed. Please try again.');
-            this.logout();
+            console.error('Authentication failed:', error);
+            this.showError('Authentication failed. Please try again.');
+            localStorage.removeItem('login_pending');
+            localStorage.removeItem('spotify_auth_state');
         }
     }
 
@@ -329,37 +298,6 @@ class VerszApp {
         document.getElementById('user-info')?.classList.add('hidden');
         this.clearIntervals();
     }
-    async checkCustomUrl(url) {
-        try {
-            const response = await fetch(`${config.backendUrl}/users/check-url/${url}`);
-            if (!response.ok) throw new Error('Failed to check URL availability');
-            return await response.json();
-        } catch (error) {
-            console.error('Failed to check URL availability:', error);
-            return { available: false, reason: 'Error checking URL availability' };
-        }
-    }
-    
-    async updateCustomUrl(userId, newUrl) {
-        try {
-            const response = await fetch(`${config.backendUrl}/users/${userId}/custom-url`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(newUrl)  // Send the URL string directly
-            });
-            
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.detail || 'Failed to update URL');
-            }
-            
-            const result = await response.json();
-            return result;
-        } catch (error) {
-            console.error('Failed to update custom URL:', error);
-            throw error.message || 'Failed to update URL';
-        }
-    }
 
     async showProfileSection(userData, isOwnProfile) {
         document.getElementById('login-section')?.classList.add('hidden');
@@ -383,114 +321,6 @@ class VerszApp {
             } else {
                 this.updateUserInfo(userData);
             }
-        }
-
-        // Remove any existing URL container before adding a new one
-        const existingUrlContainer = document.querySelector('.profile-url-container');
-        if (existingUrlContainer) {
-            existingUrlContainer.remove();
-        }
-
-        if (isOwnProfile) {
-            const urlContainer = document.createElement('div');
-            urlContainer.className = 'profile-url-container';
-            urlContainer.innerHTML = `
-                <div class="profile-url-display">
-                    <span class="url-prefix">versz.fun/</span>
-                    <span class="current-url">${userData.custom_url || userData.id}</span>
-                    <button class="edit-url-btn">
-                        <i class="fas fa-pencil-alt"></i>
-                    </button>
-                </div>
-                <div class="url-editor hidden">
-                    <input type="text" class="url-input" 
-                        placeholder="Enter custom URL"
-                        value="${userData.custom_url || userData.id}">
-                    <div class="url-feedback"></div>
-                    <div class="url-buttons">
-                        <button class="save-url-btn">Save</button>
-                        <button class="cancel-url-btn">Cancel</button>
-                    </div>
-                </div>
-            `;
-            
-            document.querySelector('.profile-info').appendChild(urlContainer);
-            
-            // Add event listeners for URL editing
-            const editBtn = urlContainer.querySelector('.edit-url-btn');
-            const urlEditor = urlContainer.querySelector('.url-editor');
-            const urlInput = urlContainer.querySelector('.url-input');
-            const urlFeedback = urlContainer.querySelector('.url-feedback');
-            const saveBtn = urlContainer.querySelector('.save-url-btn');
-            const cancelBtn = urlContainer.querySelector('.cancel-url-btn');
-            
-            editBtn.addEventListener('click', () => {
-                urlEditor.classList.remove('hidden');
-                urlInput.focus();
-            });
-            
-            cancelBtn.addEventListener('click', () => {
-                urlEditor.classList.add('hidden');
-                urlInput.value = userData.custom_url || userData.id;
-                urlFeedback.textContent = '';
-            });
-            
-            let checkTimeout;
-            urlInput.addEventListener('input', () => {
-                clearTimeout(checkTimeout);
-                const value = urlInput.value.trim();
-                
-                if (!value) {
-                    urlFeedback.textContent = 'URL cannot be empty';
-                    urlFeedback.className = 'url-feedback unavailable';
-                    saveBtn.disabled = true;
-                    return;
-                }
-                
-                checkTimeout = setTimeout(async () => {
-                    if (value === (userData.custom_url || userData.id)) {
-                        urlFeedback.textContent = '';
-                        saveBtn.disabled = true;
-                        return;
-                    }
-                    
-                    try {
-                        const result = await this.checkCustomUrl(value);
-                        if (result.available) {
-                            urlFeedback.textContent = '✓ URL is available';
-                            urlFeedback.className = 'url-feedback available';
-                            saveBtn.disabled = false;
-                        } else {
-                            urlFeedback.textContent = `✗ ${result.reason || 'URL is not available'}`;
-                            urlFeedback.className = 'url-feedback unavailable';
-                            saveBtn.disabled = true;
-                        }
-                    } catch (error) {
-                        urlFeedback.textContent = '✗ Error checking URL availability';
-                        urlFeedback.className = 'url-feedback unavailable';
-                        saveBtn.disabled = true;
-                    }
-                }, 300);
-            });
-            
-            saveBtn.addEventListener('click', async () => {
-                const newUrl = urlInput.value.trim();
-                try {
-                    const result = await this.updateCustomUrl(userData.id, newUrl);
-                    if (result.success) {
-                        userData.custom_url = result.custom_url;
-                        urlEditor.classList.add('hidden');
-                        document.querySelector('.current-url').textContent = result.custom_url;
-                        this.showSuccess('Profile URL updated successfully');
-                        
-                        if (window.location.pathname === `/${userData.id}`) {
-                            history.replaceState({}, '', `/${result.custom_url}`);
-                        }
-                    }
-                } catch (error) {
-                    this.showError(error);
-                }
-            });
         }
 
         this.updateProfileInfo(userData);
@@ -585,50 +415,31 @@ class VerszApp {
         
         try {
             const response = await fetch(`${config.backendUrl}/users/${userId}/recent-tracks`);
-            if (!response.ok) {
-                throw new Error(`Failed to fetch recent tracks: ${response.status}`);
-            }
+            if (!response.ok) throw new Error('Failed to fetch recent tracks');
             
             const tracks = await response.json();
-            
-            if (!Array.isArray(tracks)) {
-                throw new Error('Invalid response format for recent tracks');
-            }
-            
             this.dataCache.recentTracks = tracks;
-            
-            if (tracks.length === 0) {
-                tracksList.innerHTML = `
-                    <div class="placeholder-text">
-                        <i class="fas fa-music"></i>
-                        No recent tracks found
-                    </div>
-                `;
-                tracksCount.textContent = '0';
-                return;
-            }
             
             tracksCount.textContent = tracks.length;
             
             tracksList.innerHTML = tracks.map(track => `
                 <div class="track-item">
-                    <img src="${track.album_art || '/api/placeholder/48/48'}" 
-                         alt="Album Art" 
-                         class="track-artwork"
-                         onerror="this.src='/api/placeholder/48/48'">
-                    <div class="track-details">
-                        <div class="track-name">${this.escapeHtml(track.track_name)}</div>
-                        <div class="track-artist">${this.escapeHtml(track.artist_name)}</div>
-                        <div class="track-time">${this.formatDate(track.played_at)}</div>
-                    </div>
+                    <img src="${track.album_art || '/api/placeholder/48/48'}" alt="Album Art" 
+                class="track-artwork"
+                onerror="this.src='/api/placeholder/48/48'">
+                <div class="track-details">
+                    <div class="track-name">${this.escapeHtml(track.track_name)}</div>
+                    <div class="track-artist">${this.escapeHtml(track.artist_name)}</div>
+                    <div class="track-time">${this.formatDate(track.played_at)}</div>
                 </div>
-            `).join('');
+            </div>
+        `).join('');
         } catch (error) {
             console.error('Failed to update recent tracks:', error);
             tracksList.innerHTML = `
                 <div class="placeholder-text">
                     <i class="fas fa-exclamation-circle"></i>
-                    Unable to fetch recent tracks: ${error.message}
+                    Unable to fetch recent tracks
                 </div>
             `;
             tracksCount.textContent = '0';
