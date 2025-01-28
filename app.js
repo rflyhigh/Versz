@@ -2,7 +2,7 @@ class VerszApp {
     constructor() {
         this.currentTrackInterval = null;
         this.recentTracksInterval = null;
-        this.toptrackSInterval = null;
+        this.topTrackSInterval = null;
         this.topartisInterval = null;
         this.searchDebounceTimeout = null;
         this.dataCache = {
@@ -426,7 +426,7 @@ class VerszApp {
                 this.updateTopArtists(userId)
             ]);
             
-            // Fixed the variable name from toptrackSInterval to topTracksInterval
+            
             this.currentTrackInterval = setInterval(() => this.updateCurrentTrack(userId), 30000);
             this.recentTracksInterval = setInterval(() => this.updateRecentTracks(userId), 60000);
             this.topTracksInterval = setInterval(() => this.updateTopTracks(userId), 60000); // Fixed variable name
