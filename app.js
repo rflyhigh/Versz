@@ -40,6 +40,15 @@ class VerszApp {
             }
         });
 
+        document.getElementById('quick-login-btn')?.addEventListener('click', () => this.login());
+        document.getElementById('custom-login-btn')?.addEventListener('click', () => this.login(true));
+        document.getElementById('custom-url-toggle')?.addEventListener('click', () => this.toggleCustomUrlSection());
+        
+        const urlInput = document.getElementById('custom-url-input');
+        if (urlInput) {
+            urlInput.addEventListener('input', (e) => this.handleUrlInput(e));
+        }
+
         // Add tab switching functionality
         const tabs = document.querySelectorAll('.tab-button');
         tabs.forEach(tab => {
@@ -53,6 +62,85 @@ class VerszApp {
             error.addEventListener('click', () => error.classList.add('hidden'));
         });
     }
+
+    toggleCustomUrlSection() {
+        const section = document.getElementById('custom-url-section');
+        const isHidden = section.classList.contains('hidden');
+        
+        if (isHidden) {
+            section.classList.remove('hidden');
+            section.classList.add('animate__fadeIn');
+        } else {
+            section.classList.add('animate__fadeOut');
+            setTimeout(() => {
+                section.classList.add('hidden');
+                section.classList.remove('animate__fadeOut');
+            }, 300);
+        }
+    }
+
+    async handleUrlInput(e) {
+        const urlInput = e.target;
+        const urlStatus = document.getElementById('url-status');
+        const customLoginBtn = document.getElementById('custom-login-btn');
+        
+        clearTimeout(this._urlCheckTimeout);
+        
+        const url = urlInput.value.trim();
+        
+        if (!url) {
+            urlStatus.textContent = '';
+            urlInput.dataset.valid = 'false';
+            customLoginBtn.disabled = true;
+            return;
+        }
+
+        if (url.length < 3) {
+            urlStatus.textContent = 'URL must be at least 3 characters';
+            urlStatus.className = 'text-sm text-red-500';
+            urlInput.dataset.valid = 'false';
+            customLoginBtn.disabled = true;
+            return;
+        }
+
+        if (!/^[a-zA-Z0-9_-]{3,30}$/.test(url)) {
+            urlStatus.textContent = 'URL can only contain letters, numbers, underscores, and hyphens';
+            urlStatus.className = 'text-sm text-red-500';
+            urlInput.dataset.valid = 'false';
+            customLoginBtn.disabled = true;
+            return;
+        }
+
+        // Add loading state
+        urlStatus.textContent = 'Checking availability...';
+        urlStatus.className = 'text-sm text-gray-500';
+        
+        this._urlCheckTimeout = setTimeout(async () => {
+            try {
+                const response = await fetch(`${config.backendUrl}/check-url/${url}`);
+                const data = await response.json();
+                
+                if (data.available) {
+                    urlStatus.textContent = 'URL is available!';
+                    urlStatus.className = 'text-sm text-green-500';
+                    urlInput.dataset.valid = 'true';
+                    customLoginBtn.disabled = false;
+                } else {
+                    urlStatus.textContent = data.reason || 'URL is already taken';
+                    urlStatus.className = 'text-sm text-red-500';
+                    urlInput.dataset.valid = 'false';
+                    customLoginBtn.disabled = true;
+                }
+            } catch (error) {
+                console.error('URL check failed:', error);
+                urlStatus.textContent = 'Error checking URL availability';
+                urlStatus.className = 'text-sm text-red-500';
+                urlInput.dataset.valid = 'false';
+                customLoginBtn.disabled = true;
+            }
+        }, 300);
+    }
+
 
     switchTab(targetId) {
         // Hide all tab contents
@@ -206,17 +294,24 @@ class VerszApp {
         });
     }
 
-    async login() {
-        const urlInput = document.getElementById('custom-url-input');
-        if (!urlInput || urlInput.dataset.valid !== 'true') {
-            this.showError('Please choose a valid URL');
-            return;
+    async login(useCustomUrl = false) {
+        let customUrl = '';
+        
+        if (useCustomUrl) {
+            const urlInput = document.getElementById('custom-url-input');
+            if (!urlInput || urlInput.dataset.valid !== 'true') {
+                this.showError('Please choose a valid URL');
+                return;
+            }
+            customUrl = urlInput.value.trim();
         }
 
-        const customUrl = urlInput.value.trim();
         const state = Math.random().toString(36).substring(7);
         localStorage.setItem('spotify_auth_state', state);
-        localStorage.setItem('pending_custom_url', customUrl);
+        
+        if (customUrl) {
+            localStorage.setItem('pending_custom_url', customUrl);
+        }
         
         const redirectUri = `${window.location.origin}/callback.html`;
         const authUrl = `https://accounts.spotify.com/authorize?client_id=${config.clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(config.scopes)}&state=${state}`;
