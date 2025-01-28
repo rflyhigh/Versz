@@ -298,6 +298,36 @@ class VerszApp {
         document.getElementById('user-info')?.classList.add('hidden');
         this.clearIntervals();
     }
+    async checkCustomUrl(url) {
+        try {
+            const response = await fetch(`${config.backendUrl}/users/check-url/${url}`);
+            if (!response.ok) throw new Error('Failed to check URL availability');
+            return await response.json();
+        } catch (error) {
+            console.error('Failed to check URL availability:', error);
+            return { available: false, reason: 'Error checking URL availability' };
+        }
+    }
+    
+    async updateCustomUrl(userId, newUrl) {
+        try {
+            const response = await fetch(`${config.backendUrl}/users/${userId}/custom-url`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ custom_url: newUrl })
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Failed to update URL');
+            }
+            
+            return await response.json();
+        } catch (error) {
+            console.error('Failed to update custom URL:', error);
+            throw error;
+        }
+    }
 
     async showProfileSection(userData, isOwnProfile) {
         document.getElementById('login-section')?.classList.add('hidden');
@@ -321,6 +351,92 @@ class VerszApp {
             } else {
                 this.updateUserInfo(userData);
             }
+        }
+        if (isOwnProfile) {
+            const urlContainer = document.createElement('div');
+            urlContainer.className = 'profile-url-container';
+            urlContainer.innerHTML = `
+                <div class="profile-url-display">
+                    <span class="url-prefix">versz.fun/</span>
+                    <span class="current-url">${userData.custom_url || userData.id}</span>
+                    <button class="edit-url-btn">
+                        <i class="fas fa-pencil-alt"></i>
+                    </button>
+                </div>
+                <div class="url-editor hidden">
+                    <input type="text" class="url-input" 
+                        placeholder="Enter custom URL"
+                        value="${userData.custom_url || userData.id}">
+                    <div class="url-feedback"></div>
+                    <div class="url-buttons">
+                        <button class="save-url-btn">Save</button>
+                        <button class="cancel-url-btn">Cancel</button>
+                    </div>
+                </div>
+            `;
+            
+            document.querySelector('.profile-info').appendChild(urlContainer);
+            
+            // Add event listeners for URL editing
+            const editBtn = urlContainer.querySelector('.edit-url-btn');
+            const urlEditor = urlContainer.querySelector('.url-editor');
+            const urlInput = urlContainer.querySelector('.url-input');
+            const urlFeedback = urlContainer.querySelector('.url-feedback');
+            const saveBtn = urlContainer.querySelector('.save-url-btn');
+            const cancelBtn = urlContainer.querySelector('.cancel-url-btn');
+            
+            editBtn.addEventListener('click', () => {
+                urlEditor.classList.remove('hidden');
+                urlInput.focus();
+            });
+            
+            cancelBtn.addEventListener('click', () => {
+                urlEditor.classList.add('hidden');
+                urlInput.value = userData.custom_url || userData.id;
+                urlFeedback.textContent = '';
+            });
+            
+            let checkTimeout;
+            urlInput.addEventListener('input', () => {
+                clearTimeout(checkTimeout);
+                const value = urlInput.value.trim();
+                
+                checkTimeout = setTimeout(async () => {
+                    if (value === (userData.custom_url || userData.id)) {
+                        urlFeedback.textContent = '';
+                        return;
+                    }
+                    
+                    const result = await this.checkCustomUrl(value);
+                    if (result.available) {
+                        urlFeedback.textContent = '✓ URL is available';
+                        urlFeedback.className = 'url-feedback available';
+                        saveBtn.disabled = false;
+                    } else {
+                        urlFeedback.textContent = `✗ ${result.reason || 'URL is not available'}`;
+                        urlFeedback.className = 'url-feedback unavailable';
+                        saveBtn.disabled = true;
+                    }
+                }, 300);
+            });
+            
+            saveBtn.addEventListener('click', async () => {
+                const newUrl = urlInput.value.trim();
+                try {
+                    await this.updateCustomUrl(userData.id, newUrl);
+                    userData.custom_url = newUrl;
+                    urlEditor.classList.add('hidden');
+                    document.querySelector('.current-url').textContent = newUrl;
+                    this.showSuccess('Profile URL updated successfully');
+                    
+                    // Update the browser URL if needed
+                    if (window.location.pathname === `/${userData.id}`) {
+                        history.replaceState({}, '', `/${newUrl}`);
+                    }
+                } catch (error) {
+                    this.showError(error.message);
+                }
+            });
         }
 
         this.updateProfileInfo(userData);
