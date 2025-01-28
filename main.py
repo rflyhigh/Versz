@@ -35,6 +35,7 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
                 spotify_id TEXT UNIQUE,
+                custom_url TEXT UNIQUE,  -- New column
                 access_token TEXT,
                 refresh_token TEXT,
                 token_expiry TIMESTAMP,
@@ -107,17 +108,50 @@ async def health():
     return {"status": "healthy"}
 
 
+@app.get("/check-url/{custom_url}")
+async def check_url_availability(custom_url: str):
+    if not is_valid_url(custom_url):
+        return {"available": False, "reason": "Invalid URL format"}
+        
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM users WHERE custom_url = ?",
+            (custom_url.lower(),)
+        )
+        count = (await cursor.fetchone())[0]
+        return {"available": count == 0}
+
+def is_valid_url(url: str):
+    import re
+    # Allow alphanumeric characters, hyphens, and underscores
+    # Length between 3-30 characters
+    pattern = re.compile("^[a-zA-Z0-9_-]{3,30}$")
+    return bool(pattern.match(url))
+
+# Modified auth callback to handle custom URL
 @app.post("/auth/callback")
 async def spotify_callback(request: Request):
     try:
-        # Get the request body
         request_data = await request.json()
         code = request_data.get('code')
+        custom_url = request_data.get('custom_url')
         redirect_uri = request_data.get('redirect_uri', SPOTIFY_REDIRECT_URI)
         
         if not code:
             raise HTTPException(status_code=400, detail="Code parameter is required")
-        
+            
+        if not custom_url or not is_valid_url(custom_url):
+            raise HTTPException(status_code=400, detail="Invalid custom URL")
+
+        # Check URL availability
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM users WHERE custom_url = ?",
+                (custom_url.lower(),)
+            )
+            if (await cursor.fetchone())[0] > 0:
+                raise HTTPException(status_code=400, detail="URL already taken")
+
         async with httpx.AsyncClient() as client:
             # Exchange code for tokens
             token_response = await client.post(
@@ -138,21 +172,10 @@ async def spotify_callback(request: Request):
             
             token_data = token_response.json()
             
-            # Get user profile with retry logic
-            for attempt in range(3):
-                try:
-                    user_response = await client.get(
-                        "https://api.spotify.com/v1/me",
-                        headers={"Authorization": f"Bearer {token_data['access_token']}"},
-                        timeout=10.0
-                    )
-                    if user_response.status_code == 200:
-                        break
-                    await asyncio.sleep(1)
-                except Exception:
-                    if attempt == 2:
-                        raise
-                    continue
+            user_response = await client.get(
+                "https://api.spotify.com/v1/me",
+                headers={"Authorization": f"Bearer {token_data['access_token']}"}
+            )
             
             if user_response.status_code != 200:
                 print(f"User profile error: {user_response.status_code}, {user_response.text}")
@@ -160,14 +183,15 @@ async def spotify_callback(request: Request):
             
             user_data = user_response.json()
             
-            # Store user data
+            # Store user data with custom URL
             async with aiosqlite.connect(DATABASE_PATH) as db:
                 await db.execute("""
                     INSERT OR REPLACE INTO users 
-                    (spotify_id, access_token, refresh_token, token_expiry, display_name, avatar_url)
-                    VALUES (?, ?, ?, datetime('now', '+1 hour'), ?, ?)
+                    (spotify_id, custom_url, access_token, refresh_token, token_expiry, display_name, avatar_url)
+                    VALUES (?, ?, ?, ?, datetime('now', '+1 hour'), ?, ?)
                 """, (
                     user_data["id"],
+                    custom_url.lower(),
                     token_data["access_token"],
                     token_data.get("refresh_token"),
                     user_data.get("display_name", user_data["id"]),
@@ -177,19 +201,24 @@ async def spotify_callback(request: Request):
             
             return {
                 "success": True,
-                "user_id": user_data["id"]
+                "user_id": custom_url.lower()
             }
             
     except Exception as e:
         print(f"Callback error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# Modified get_user endpoint to handle custom URLs
 @app.get("/users/{user_id}")
 async def get_user(user_id: str):
     async with aiosqlite.connect(DATABASE_PATH) as db:
         cursor = await db.execute(
-            "SELECT spotify_id, display_name, avatar_url FROM users WHERE spotify_id = ?",
-            (user_id,)
+            """
+            SELECT spotify_id, custom_url, display_name, avatar_url 
+            FROM users 
+            WHERE custom_url = ? OR spotify_id = ?
+            """,
+            (user_id.lower(), user_id)
         )
         user = await cursor.fetchone()
         
@@ -198,8 +227,9 @@ async def get_user(user_id: str):
             
         return {
             "id": user[0],
-            "display_name": user[1],
-            "avatar_url": user[2]
+            "custom_url": user[1],
+            "display_name": user[2],
+            "avatar_url": user[3]
         }
 
 @app.get("/users/{user_id}/recent-tracks")
