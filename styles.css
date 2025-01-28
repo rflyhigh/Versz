@@ -867,3 +867,11 @@ input:focus:not(:focus-visible) {
     gap: 0.5rem;
     margin-top: 1rem;
 }
+.success-message {
+    background-color: #4CAF50;
+    color: white;
+    padding: 12px 24px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
