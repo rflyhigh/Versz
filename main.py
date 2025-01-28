@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 import json
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
-from pydantic import BaseModel
 
 load_dotenv()
 
@@ -26,13 +25,12 @@ app.add_middleware(
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 SPOTIFY_REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI")
-DATABASE_PATH = "spotify10.db"
+DATABASE_PATH = "spotify1.db"
 
 scheduler = AsyncIOScheduler()
 
 async def init_db():
     async with aiosqlite.connect(DATABASE_PATH) as db:
-        # First create the base users table if it doesn't exist
         await db.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
@@ -42,24 +40,10 @@ async def init_db():
                 token_expiry TIMESTAMP,
                 display_name TEXT,
                 avatar_url TEXT,
-                last_update TIMESTAMP,
-                custom_url TEXT UNIQUE
+                last_update TIMESTAMP
             )
         """)
-
-        # Check if custom_url column exists
-        cursor = await db.execute("""
-            SELECT name FROM pragma_table_info('users') WHERE name = 'custom_url'
-        """)
-        has_custom_url = await cursor.fetchone()
-
-        if not has_custom_url:
-            # Add custom_url column if it doesn't exist
-            await db.execute("""
-                ALTER TABLE users ADD COLUMN custom_url TEXT UNIQUE
-            """)
-
-        # Create other tables
+        
         await db.execute("""
             CREATE TABLE IF NOT EXISTS tracks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -200,72 +184,12 @@ async def spotify_callback(request: Request):
         print(f"Callback error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/users/check-url/{custom_url}")
-async def check_custom_url(custom_url: str):
-    if not custom_url.isalnum() or len(custom_url) < 3 or len(custom_url) > 30:
-        return {"available": False, "reason": "URL must be 3-30 alphanumeric characters"}
-        
-    # List of reserved words that cannot be used as URLs
-    reserved_words = {'login', 'admin', 'settings', 'profile', 'home', 'search', 'api'}
-    if custom_url.lower() in reserved_words:
-        return {"available": False, "reason": "This URL is reserved"}
-    
+@app.get("/users/{user_id}")
+async def get_user(user_id: str):
     async with aiosqlite.connect(DATABASE_PATH) as db:
         cursor = await db.execute(
-            "SELECT 1 FROM users WHERE custom_url = ? OR spotify_id = ?",
-            (custom_url, custom_url)
-        )
-        exists = await cursor.fetchone()
-        
-        return {
-            "available": not exists,
-            "reason": "URL is already taken" if exists else None
-        }
-
-class CustomUrlUpdate(BaseModel):
-    custom_url: str
-
-@app.post("/users/{user_id}/custom-url")
-async def update_custom_url(user_id: str, url_data: CustomUrlUpdate):
-    custom_url = url_data.custom_url
-    
-    if not custom_url.isalnum() or len(custom_url) < 3 or len(custom_url) > 30:
-        raise HTTPException(status_code=422, detail="Invalid URL format")
-    
-    custom_url = custom_url.lower()
-    
-    reserved_words = {'login', 'admin', 'settings', 'profile', 'home', 'search', 'api'}
-    if custom_url.lower() in reserved_words:
-        raise HTTPException(status_code=422, detail="This URL is reserved")
-    
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        cursor = await db.execute(
-            "SELECT 1 FROM users WHERE custom_url = ? AND spotify_id != ?",
-            (custom_url, user_id)
-        )
-        exists = await cursor.fetchone()
-        
-        if exists:
-            raise HTTPException(status_code=422, detail="URL is already taken")
-        
-        await db.execute(
-            "UPDATE users SET custom_url = ? WHERE spotify_id = ?",
-            (custom_url, user_id)
-        )
-        await db.commit()
-        
-        return {"success": True, "custom_url": custom_url}
-# Modify the existing get_user endpoint to handle custom URLs
-@app.get("/users/{user_identifier}")
-async def get_user(user_identifier: str):
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        cursor = await db.execute(
-            """
-            SELECT spotify_id, display_name, avatar_url, custom_url 
-            FROM users 
-            WHERE spotify_id = ? OR custom_url = ?
-            """,
-            (user_identifier, user_identifier)
+            "SELECT spotify_id, display_name, avatar_url FROM users WHERE spotify_id = ?",
+            (user_id,)
         )
         user = await cursor.fetchone()
         
@@ -275,9 +199,9 @@ async def get_user(user_identifier: str):
         return {
             "id": user[0],
             "display_name": user[1],
-            "avatar_url": user[2],
-            "custom_url": user[3]
+            "avatar_url": user[2]
         }
+
 @app.get("/users/{user_id}/recent-tracks")
 async def get_recent_tracks(user_id: str):
     async with aiosqlite.connect(DATABASE_PATH) as db:
