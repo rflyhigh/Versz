@@ -25,50 +25,40 @@ app.add_middleware(
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 SPOTIFY_REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI")
-DATABASE_PATH = "spotify1.db"
+DATABASE_PATH = "spotify10.db"
 
 scheduler = AsyncIOScheduler()
 
-async def init_db():
+sync def init_db():
     async with aiosqlite.connect(DATABASE_PATH) as db:
-        # First, check if custom_url column exists
+        # First create the base users table if it doesn't exist
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                spotify_id TEXT UNIQUE,
+                access_token TEXT,
+                refresh_token TEXT,
+                token_expiry TIMESTAMP,
+                display_name TEXT,
+                avatar_url TEXT,
+                last_update TIMESTAMP,
+                custom_url TEXT UNIQUE
+            )
+        """)
+
+        # Check if custom_url column exists
         cursor = await db.execute("""
             SELECT name FROM pragma_table_info('users') WHERE name = 'custom_url'
         """)
         has_custom_url = await cursor.fetchone()
 
         if not has_custom_url:
-            # Create a new users table with the custom_url column
+            # Add custom_url column if it doesn't exist
             await db.execute("""
-                CREATE TABLE IF NOT EXISTS users_new (
-                    id TEXT PRIMARY KEY,
-                    spotify_id TEXT UNIQUE,
-                    access_token TEXT,
-                    refresh_token TEXT,
-                    token_expiry TIMESTAMP,
-                    display_name TEXT,
-                    avatar_url TEXT,
-                    last_update TIMESTAMP,
-                    custom_url TEXT UNIQUE
-                )
+                ALTER TABLE users ADD COLUMN custom_url TEXT UNIQUE
             """)
 
-            # Copy data from the old table to the new one
-            await db.execute("""
-                INSERT INTO users_new (
-                    id, spotify_id, access_token, refresh_token, 
-                    token_expiry, display_name, avatar_url, last_update
-                )
-                SELECT id, spotify_id, access_token, refresh_token,
-                       token_expiry, display_name, avatar_url, last_update
-                FROM users
-            """)
-
-            # Drop the old table and rename the new one
-            await db.execute("DROP TABLE users")
-            await db.execute("ALTER TABLE users_new RENAME TO users")
-
-        # Create other tables if they don't exist
+        # Create other tables
         await db.execute("""
             CREATE TABLE IF NOT EXISTS tracks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
