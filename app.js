@@ -259,6 +259,7 @@ class VerszApp {
     }
 
     setupProfileUrlEditor() {
+        if (!document.querySelector('.is-own-profile')) return;
         const editUrlBtn = document.getElementById('edit-url-btn');
         const urlEditor = document.getElementById('url-editor');
         const urlInput = document.getElementById('custom-url-input');
@@ -415,6 +416,13 @@ class VerszApp {
     async showProfileSection(userData, isOwnProfile) {
         document.getElementById('login-section')?.classList.add('hidden');
         document.getElementById('profile-section')?.classList.remove('hidden');
+        const profileSection = document.getElementById('profile-section');
+        if (isOwnProfile) {
+            profileSection?.classList.add('is-own-profile');
+        } else {
+            profileSection?.classList.remove('is-own-profile');
+        }
+
         
         const loggedInUserId = localStorage.getItem('spotify_user_id');
         if (loggedInUserId) {
@@ -681,10 +689,6 @@ class VerszApp {
                 setTimeout(() => successContainer.remove(), 300);
             }, 5000);
         }
-    }
-    const profileUrlSection = document.querySelector('.profile-url-section');
-    if (profileUrlSection) {
-        profileUrlSection.classList.toggle('hidden', !isOwnProfile);
     }
 }
 // Add showSuccess method, similar to showError
