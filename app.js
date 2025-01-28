@@ -565,7 +565,8 @@ class VerszApp {
                     <div class="track-details">
                         <div class="track-name">${this.escapeHtml(track.track_name)}</div>
                         <div class="track-artist">${this.escapeHtml(track.artist_name)}</div>
-                        <div class="track-popularity">Popularity: ${track.popularity}%</div>
+                        ${track.album_name ? `<div class="track-album">${this.escapeHtml(track.album_name)}</div>` : ''}
+                        ${track.popularity ? `<div class="track-popularity">Popularity: ${track.popularity}%</div>` : ''}
                     </div>
                 </div>
             `).join('');
