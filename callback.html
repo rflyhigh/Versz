@@ -16,6 +16,7 @@
             height: 100vh;
             margin: 0;
         }
+
         .loader {
             width: 48px;
             height: 48px;
@@ -24,17 +25,20 @@
             border-radius: 50%;
             animation: rotation 1s linear infinite;
         }
+
         .message {
             margin-top: 20px;
             font-size: 16px;
             text-align: center;
         }
+
         .error {
             color: #ff4444;
             margin-top: 20px;
             text-align: center;
             max-width: 80%;
         }
+
         @keyframes rotation {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
@@ -47,7 +51,6 @@
     <div id="error" class="error"></div>
 
     <script>
-        // Handle authentication flow
         function handleCallback() {
             const params = new URLSearchParams(window.location.search);
             const error = params.get('error');
@@ -61,21 +64,16 @@
                 return;
             }
 
-            // Store the current path for redirect after authentication
             if (window.location.pathname !== '/callback.html') {
                 sessionStorage.setItem('redirect_path', window.location.pathname);
             }
 
-            // Redirect to home page with query parameters
             const redirectUrl = '/' + window.location.search;
-
-            // Add a small delay to ensure storage is complete
             setTimeout(() => {
                 window.location.replace(redirectUrl);
             }, 100);
         }
 
-        // Execute when DOM is loaded
         document.addEventListener('DOMContentLoaded', () => {
             try {
                 handleCallback();
