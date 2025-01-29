@@ -4,7 +4,8 @@ class VerszApp {
             currentTrack: null,
             recentTracks: null,
             topTracks: null,
-            topArtists: null
+            topArtists: null,
+            playlists: null
         };
         this.searchDebounceTimeout = null;
         this.urlCheckTimeout = null;
@@ -430,6 +431,42 @@ class VerszApp {
         } catch (error) {
             this.handleRoutingError(error);
         }
+        path = window.location.pathname.split('/').filter(Boolean);
+        
+        if (path.length === 0) {
+            const userId = localStorage.getItem('spotify_user_id');
+            if (!userId) {
+                this.showLoginSection();
+                return;
+            }
+            this.navigateToProfile(userId);
+            return;
+        }
+
+        const [userId, playlistUrl] = path;
+
+        if (playlistUrl) {
+            // Handle playlist view
+            try {
+                await this.loadPlaylistView(userId, playlistUrl);
+            } catch (error) {
+                console.error('Failed to load playlist:', error);
+                this.showError('Failed to load playlist');
+                this.navigateToProfile(userId);
+            }
+        } else {
+            // Handle profile view
+            try {
+                await this.loadProfile(userId);
+            } catch (error) {
+                this.handleRoutingError(error);
+            }
+        }
+    }
+    formatDuration(ms) {
+        const minutes = Math.floor(ms / 60000);
+        const seconds = Math.floor((ms % 60000) / 1000);
+        return `${minutes}:${seconds.toString().padStart(2, '0')}`;
     }
 
     getViewingUserId(path) {
@@ -469,6 +506,60 @@ class VerszApp {
         }
     }
 
+    async loadPlaylistView(userId, playlistUrl) {
+        const response = await fetch(`${config.backendUrl}/playlists/${playlistUrl}`);
+        if (!response.ok) throw new Error('Playlist not found');
+        
+        const playlist = await response.json();
+        document.title = `${playlist.playlist_name} - versz`;
+        
+        // Hide all other sections
+        this.toggleSections('login-section', false);
+        this.toggleSections('profile-section', false);
+        
+        // Show playlist view
+        const main = document.querySelector('main');
+        main.innerHTML = `
+            <div class="top-bar">
+                <a href="/${playlist.owner.profile_url}" class="back-button">←</a>
+            </div>
+
+            <div class="container">
+                <div class="header">
+                    <div class="playlist-cover">
+                        <img src="${playlist.cover_image || '/api/placeholder/300/300'}" alt="Playlist cover">
+                    </div>
+                    <div class="playlist-info">
+                        <div class="playlist-type">Playlist</div>
+                        <h1 class="playlist-title">${this.escapeHtml(playlist.playlist_name)}</h1>
+                        <div class="playlist-meta">
+                            Created by ${this.escapeHtml(playlist.owner.display_name)} • 
+                            ${playlist.total_tracks} tracks
+                        </div>
+                    </div>
+                </div>
+
+                <ul class="track-list">
+                    ${playlist.tracks.map(track => `
+                        <li class="track-item">
+                            <div class="track-art-container">
+                                <img src="${track.album_art || '/api/placeholder/48/48'}" 
+                                     alt="Track art" 
+                                     class="track-art">
+                            </div>
+                            <div class="track-info">
+                                <div class="track-title">${this.escapeHtml(track.track_name)}</div>
+                                <div class="track-artist">${this.escapeHtml(track.artist_name)}</div>
+                            </div>
+                            <span class="track-duration">${this.formatDuration(track.duration)}</span>
+                        </li>
+                    `).join('')}
+                </ul>
+            </div>
+        `;
+    }
+
+
    async showProfileSection(userData, isOwnProfile) {
         this.toggleSections('login-section', false);
         this.toggleSections('profile-section', true);
@@ -481,7 +572,47 @@ class VerszApp {
         this.updateProfileInfo(userData);
         await this.startTracking(userData.id);
         this.switchTab('recent-tracks');
+       
+       const contentGrid = document.querySelector('.content-grid');
+        contentGrid.insertAdjacentHTML('beforeend', `
+            <div id="playlists" class="track-card animate__animated animate__fadeIn">
+                <div class="card-header">
+                    <h2><i class="fas fa-list"></i> Playlists</h2>
+                </div>
+                <div id="playlists-grid" class="playlists-grid"></div>
+            </div>
+        `);
+
+        await this.updatePlaylists(userData.id);
+        this.intervals.playlists = setInterval(() => this.updatePlaylists(userData.id), 300000);
     }
+
+    async updatePlaylists(userId) {
+        const playlistsGrid = document.getElementById('playlists-grid');
+        if (!playlistsGrid) return;
+
+        try {
+            const response = await fetch(`${config.backendUrl}/users/${userId}/playlists`);
+            if (!response.ok) throw new Error('Failed to fetch playlists');
+            
+            const playlists = await response.json();
+            playlistsGrid.innerHTML = playlists.map(playlist => `
+                <a href="/${userId}/${playlist.url}" class="playlist-item">
+                    <div class="playlist-cover">
+                        <img src="${playlist.cover_image || '/api/placeholder/150/150'}" 
+                             alt="${this.escapeHtml(playlist.name)}"
+                             onerror="this.src='/api/placeholder/150/150'">
+                    </div>
+                    <div class="playlist-name">${this.escapeHtml(playlist.name)}</div>
+                    <div class="playlist-tracks">${playlist.total_tracks} tracks</div>
+                </a>
+            `).join('');
+        } catch (error) {
+            console.error('Failed to update playlists:', error);
+            playlistsGrid.innerHTML = this.createPlaceholder('exclamation-circle', 'Unable to fetch playlists');
+        }
+    }
+
 
     async updateUserDisplay(loggedInUserId, userData, isOwnProfile) {
         const userInfo = document.getElementById('user-info');
