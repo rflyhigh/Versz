@@ -1,5 +1,5 @@
 class VerszApp {
-    constructor() {
+    onstructor() {
         this.intervals = {
             currentTrack: null,
             recentTracks: null,
@@ -19,12 +19,24 @@ class VerszApp {
     }
 
     async initializeApp() {
+        // Remove any duplicate profile sections
+        this.cleanupDuplicateSections();
         this.handleRedirectPath();
         this.setupEventListeners();
         await this.checkAuthCallback();
         await this.checkExistingSession();
         this.setupSearch();
         await this.handleRouting();
+    }
+
+    cleanupDuplicateSections() {
+        // Remove duplicate profile sections if they exist
+        const profileSections = document.querySelectorAll('#profile-section');
+        if (profileSections.length > 1) {
+            for (let i = 1; i < profileSections.length; i++) {
+                profileSections[i].remove();
+            }
+        }
     }
 
     handleRedirectPath() {
@@ -409,7 +421,7 @@ class VerszApp {
         }
     }
 
-    navigateToProfile(userId) {
+    async navigateToProfile(userId) {
         if (!userId) {
             console.error('Attempted to navigate to profile with no userId');
             this.showLoginSection();
@@ -419,13 +431,38 @@ class VerszApp {
         const newPath = `/${userId}`;
         if (window.location.pathname !== newPath) {
             history.pushState({}, '', newPath);
-            this.handleRouting();
+            await this.loadProfile(userId);
+        }
+    }
+
+    async loadProfile(userId) {
+        try {
+            const response = await fetch(`${config.backendUrl}/users/${userId}`);
+            if (!response.ok) {
+                if (response.status === 404) {
+                    throw new Error('User not found');
+                }
+                throw new Error('Failed to load profile');
+            }
+            
+            const userData = await response.json();
+            const isOwnProfile = userId === localStorage.getItem('spotify_user_id');
+            
+            // Clear existing content and show profile section
+            this.clearMainContent();
+            await this.showProfileSection(userData, isOwnProfile);
+        } catch (error) {
+            console.error('Profile load error:', error);
+            throw error;
         }
     }
 
     async handleRouting() {
         const pathParts = window.location.pathname.split('/').filter(Boolean);
         
+        // Clear any existing intervals before loading new content
+        this.clearIntervals();
+
         // If no path, handle root
         if (pathParts.length === 0) {
             const userId = localStorage.getItem('spotify_user_id');
@@ -433,7 +470,7 @@ class VerszApp {
                 this.showLoginSection();
                 return;
             }
-            this.navigateToProfile(userId);
+            await this.navigateToProfile(userId);
             return;
         }
     
@@ -446,7 +483,7 @@ class VerszApp {
             } catch (error) {
                 console.error('Failed to load playlist:', error);
                 this.showError('Failed to load playlist');
-                this.navigateToProfile(userId);
+                await this.navigateToProfile(userId);
             }
             return;
         }
@@ -458,7 +495,7 @@ class VerszApp {
             if (error.message === 'User not found') {
                 const loggedInUserId = localStorage.getItem('spotify_user_id');
                 if (loggedInUserId) {
-                    this.navigateToProfile(loggedInUserId);
+                    await this.navigateToProfile(loggedInUserId);
                 } else {
                     this.showLoginSection();
                 }
@@ -481,25 +518,8 @@ class VerszApp {
             : path.split('/').filter(Boolean)[0];
     }
 
-    async loadProfile(userId) {
-        try {
-            const response = await fetch(`${config.backendUrl}/users/${userId}`);
-            if (!response.ok) {
-                if (response.status === 404) {
-                    throw new Error('User not found');
-                }
-                throw new Error('Failed to load profile');
-            }
-            
-            const userData = await response.json();
-            const isOwnProfile = userId === localStorage.getItem('spotify_user_id');
-            await this.showProfileSection(userData, isOwnProfile);
-        } catch (error) {
-            console.error('Profile load error:', error);
-            throw error; // Propagate the error to be handled by handleRouting
-        }
-    }
 
+    
     handleRoutingError(error) {
         console.error('Failed to load profile:', error);
         this.showError('Failed to load profile. Please try again later.');
@@ -527,20 +547,32 @@ class VerszApp {
         }
     }
 
+    clearMainContent() {
+        // Hide all main sections
+        this.toggleSections('login-section', false);
+        this.toggleSections('profile-section', false);
+        
+        // Clear any existing content
+        const main = document.querySelector('main');
+        const existingContent = main.querySelector('.playlist-view');
+        if (existingContent) {
+            existingContent.remove();
+        }
+    }
+
     async loadPlaylistView(userId, playlistUrl) {
+        this.clearMainContent();
+        
         const response = await fetch(`${config.backendUrl}/playlists/${playlistUrl}`);
         if (!response.ok) throw new Error('Playlist not found');
         
         const playlist = await response.json();
         document.title = `${playlist.playlist_name} - versz`;
         
-        // Hide all other sections
-        this.toggleSections('login-section', false);
-        this.toggleSections('profile-section', false);
-        
-        // Show playlist view
         const main = document.querySelector('main');
-        main.innerHTML = `
+        const playlistView = document.createElement('div');
+        playlistView.className = 'playlist-view animate__animated animate__fadeIn';
+        playlistView.innerHTML = `
             <div class="top-bar">
                 <a href="/${playlist.owner.profile_url}" class="back-button">←</a>
             </div>
@@ -578,8 +610,9 @@ class VerszApp {
                 </ul>
             </div>
         `;
+        
+        main.appendChild(playlistView);
     }
-
 
    async showProfileSection(userData, isOwnProfile) {
         this.toggleSections('login-section', false);
