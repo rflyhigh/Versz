@@ -104,6 +104,20 @@ async def init_db():
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
         """)
+        
+        await connection.execute("""
+            CREATE TABLE IF NOT EXISTS playlists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT,
+                playlist_id TEXT,
+                playlist_name TEXT,
+                playlist_url TEXT UNIQUE,
+                cover_image TEXT,
+                spotify_url TEXT,
+                total_tracks INTEGER,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        """)
 
 # Utility functions
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
@@ -343,6 +357,7 @@ async def startup_event():
     await init_db()
     scheduler.add_job(update_recent_tracks, 'interval', minutes=1)
     scheduler.add_job(update_top_items, 'interval', minutes=1)
+    scheduler.add_job(update_user_playlists, 'interval', minutes=5)
     scheduler.start()
 
 @app.on_event("shutdown")
@@ -354,6 +369,140 @@ async def shutdown_event():
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
+
+def generate_playlist_url():
+    import string
+    import random
+    chars = string.ascii_letters + string.digits
+    while True:
+        url = ''.join(random.choices(chars, k=5))  # 5 character random string
+        return url
+
+# Add new function to update playlists
+async def update_user_playlists():
+    try:
+        users = await database.fetch_all("SELECT spotify_id FROM users")
+        
+        async with httpx.AsyncClient() as client:
+            for user in users:
+                try:
+                    token = await get_valid_token(user['spotify_id'])
+                    
+                    # Get user's playlists
+                    playlists_data = await get_spotify_data(
+                        client,
+                        "me/playlists?limit=50",
+                        token
+                    )
+                    
+                    async with database.transaction():
+                        # Clear existing playlists
+                        await database.execute(
+                            "DELETE FROM playlists WHERE user_id = :user_id",
+                            {"user_id": user['spotify_id']}
+                        )
+                        
+                        # Insert new playlists
+                        for playlist in playlists_data["items"]:
+                            await database.execute(
+                                """
+                                INSERT INTO playlists
+                                (user_id, playlist_id, playlist_name, playlist_url, cover_image, 
+                                spotify_url, total_tracks)
+                                VALUES (:user_id, :playlist_id, :playlist_name, :playlist_url, 
+                                :cover_image, :spotify_url, :total_tracks)
+                                """,
+                                {
+                                    "user_id": user['spotify_id'],
+                                    "playlist_id": playlist["id"],
+                                    "playlist_name": playlist["name"],
+                                    "playlist_url": generate_playlist_url(),
+                                    "cover_image": playlist["images"][0]["url"] if playlist["images"] else None,
+                                    "spotify_url": playlist["external_urls"]["spotify"],
+                                    "total_tracks": playlist["tracks"]["total"]
+                                }
+                            )
+                except Exception as e:
+                    logger.error(f"Error updating playlists for user {user['spotify_id']}: {str(e)}")
+                    continue
+    except Exception as e:
+        logger.error(f"Error in update_user_playlists: {str(e)}")
+
+# Add new endpoints
+@app.get("/users/{user_id}/playlists")
+async def get_user_playlists(user_id: str):
+    query = """
+        SELECT playlist_name, cover_image, playlist_url, total_tracks
+        FROM playlists
+        WHERE user_id = :user_id
+        ORDER BY playlist_name
+    """
+    playlists = await database.fetch_all(
+        query=query,
+        values={"user_id": user_id}
+    )
+    
+    return [
+        {
+            "name": playlist['playlist_name'],
+            "cover_image": playlist['cover_image'],
+            "url": playlist['playlist_url'],
+            "total_tracks": playlist['total_tracks']
+        }
+        for playlist in playlists
+    ]
+
+@app.get("/playlists/{playlist_url}")
+async def get_playlist_details(playlist_url: str):
+    # First get playlist info from our database
+    query = """
+        SELECT p.*, u.custom_url, u.display_name
+        FROM playlists p
+        JOIN users u ON p.user_id = u.spotify_id
+        WHERE p.playlist_url = :playlist_url
+    """
+    playlist = await database.fetch_one(
+        query=query,
+        values={"playlist_url": playlist_url}
+    )
+    
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+        
+    # Get playlist tracks from Spotify API
+    token = await get_valid_token(playlist['user_id'])
+    async with httpx.AsyncClient() as client:
+        tracks_data = await get_spotify_data(
+            client,
+            f"playlists/{playlist['playlist_id']}/tracks?limit=50",
+            token
+        )
+    
+    tracks = [
+        {
+            "track_name": track["track"]["name"],
+            "artist_name": track["track"]["artists"][0]["name"],
+            "album_name": track["track"]["album"]["name"],
+            "album_art": track["track"]["album"]["images"][0]["url"] if track["track"]["album"]["images"] else None,
+            "duration": track["track"]["duration_ms"]
+        }
+        for track in tracks_data["items"]
+        if track["track"] is not None
+    ]
+    
+    return {
+        "playlist_name": playlist['playlist_name'],
+        "cover_image": playlist['cover_image'],
+        "total_tracks": playlist['total_tracks'],
+        "spotify_url": playlist['spotify_url'],
+        "owner": {
+            "display_name": playlist['display_name'],
+            "profile_url": playlist['custom_url']
+        },
+        "tracks": tracks
+    }
+
 
 @app.get("/check-url/{custom_url}")
 async def check_url_availability(custom_url: str):
