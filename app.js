@@ -83,7 +83,8 @@ class VerszApp {
         }
     }
 
-    async handleUrlInput(e) {
+
+    handleUrlInput(e) {
         const urlInput = e.target;
         const urlStatus = document.getElementById('url-status');
         const customLoginBtn = document.getElementById('custom-login-btn');
@@ -95,10 +96,10 @@ class VerszApp {
         
         if (!validationResult.isValid) {
             this.updateUrlStatus(urlStatus, validationResult.message, 'red');
-            this.updateCustomLoginButton(customLoginBtn, false);
+            customLoginBtn.disabled = true;
             return;
         }
-
+    
         this.updateUrlStatus(urlStatus, 'Checking availability...', 'gray');
         
         this.urlCheckTimeout = setTimeout(async () => {
@@ -108,19 +109,22 @@ class VerszApp {
                 
                 if (data.available) {
                     this.updateUrlStatus(urlStatus, 'URL is available!', 'green');
-                    this.updateCustomLoginButton(customLoginBtn, true);
+                    customLoginBtn.disabled = false;
+                    urlInput.dataset.valid = 'true';
                 } else {
                     this.updateUrlStatus(urlStatus, data.reason || 'URL is already taken', 'red');
-                    this.updateCustomLoginButton(customLoginBtn, false);
+                    customLoginBtn.disabled = true;
+                    urlInput.dataset.valid = 'false';
                 }
             } catch (error) {
                 console.error('URL check failed:', error);
                 this.updateUrlStatus(urlStatus, 'Error checking URL availability', 'red');
-                this.updateCustomLoginButton(customLoginBtn, false);
+                customLoginBtn.disabled = true;
+                urlInput.dataset.valid = 'false';
             }
         }, 300);
     }
-
+    
     validateUrl(url) {
         if (!url) {
             return { isValid: false, message: '' };
@@ -133,7 +137,7 @@ class VerszApp {
         }
         return { isValid: true, message: '' };
     }
-
+    
     updateUrlStatus(element, message, color) {
         if (element) {
             element.textContent = message;
