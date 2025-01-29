@@ -1,5 +1,5 @@
 class VerszApp {
-    onstructor() {
+    constructor() {
         this.intervals = {
             currentTrack: null,
             recentTracks: null,
