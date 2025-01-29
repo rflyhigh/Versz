@@ -435,9 +435,9 @@ class VerszApp {
         }
     }
 
-    async loadProfile(userId) {
+    async loadProfile(identifier) {
         try {
-            const response = await fetch(`${config.backendUrl}/users/${userId}`);
+            const response = await fetch(`${config.backendUrl}/users/${identifier}`);
             if (!response.ok) {
                 if (response.status === 404) {
                     throw new Error('User not found');
@@ -446,7 +446,7 @@ class VerszApp {
             }
             
             const userData = await response.json();
-            const isOwnProfile = userId === localStorage.getItem('spotify_user_id');
+            const isOwnProfile = identifier === localStorage.getItem('spotify_user_id');
             
             // Clear existing content and show profile section
             this.clearMainContent();
@@ -456,14 +456,13 @@ class VerszApp {
             throw error;
         }
     }
-
     async handleRouting() {
         const pathParts = window.location.pathname.split('/').filter(Boolean);
         
         // Clear any existing intervals before loading new content
         this.clearIntervals();
-
-        // If no path, handle root
+    
+        // If no path, show login or profile
         if (pathParts.length === 0) {
             const userId = localStorage.getItem('spotify_user_id');
             if (!userId) {
@@ -474,31 +473,28 @@ class VerszApp {
             return;
         }
     
-        const [userId, playlistUrl] = pathParts;
+        const [identifier, playlistUrl] = pathParts;
     
         // Handle playlist view
         if (playlistUrl) {
             try {
-                await this.loadPlaylistView(userId, playlistUrl);
+                await this.loadPlaylistView(identifier, playlistUrl);
             } catch (error) {
                 console.error('Failed to load playlist:', error);
                 this.showError('Failed to load playlist');
-                await this.navigateToProfile(userId);
+                this.showLoginSection();
             }
             return;
         }
     
         // Handle profile view
         try {
-            await this.loadProfile(userId);
+            await this.loadProfile(identifier);
         } catch (error) {
+            console.error('Profile load error:', error);
             if (error.message === 'User not found') {
-                const loggedInUserId = localStorage.getItem('spotify_user_id');
-                if (loggedInUserId) {
-                    await this.navigateToProfile(loggedInUserId);
-                } else {
-                    this.showLoginSection();
-                }
+                this.showError('Profile not found');
+                this.showLoginSection();
             } else {
                 this.handleRoutingError(error);
             }
@@ -617,28 +613,51 @@ class VerszApp {
    async showProfileSection(userData, isOwnProfile) {
         this.toggleSections('login-section', false);
         this.toggleSections('profile-section', true);
-        
+    
+        // Update profile header with the new optimized design
+        const profileHeader = document.querySelector('.profile-header');
+        if (profileHeader) {
+            profileHeader.innerHTML = `
+                <div class="profile-info-container">
+                    <img src="${userData.avatar_url || '/api/placeholder/96/96'}" 
+                         alt="Profile" 
+                         class="profile-avatar"
+                         onerror="this.src='/api/placeholder/96/96'">
+                    <div class="profile-text">
+                        <h1 class="profile-name">${this.escapeHtml(userData.display_name || userData.id)}</h1>
+                        <a href="${userData.spotify_url}" 
+                           target="_blank" 
+                           class="spotify-profile-link">
+                            <i class="fab fa-spotify"></i> Spotify Profile
+                        </a>
+                    </div>
+                </div>
+            `;
+        }
+    
         const loggedInUserId = localStorage.getItem('spotify_user_id');
         if (loggedInUserId) {
             await this.updateUserDisplay(loggedInUserId, userData, isOwnProfile);
         }
-
-        this.updateProfileInfo(userData);
+    
         await this.startTracking(userData.id);
         this.switchTab('recent-tracks');
-       
-       const contentGrid = document.querySelector('.content-grid');
-        contentGrid.insertAdjacentHTML('beforeend', `
-            <div id="playlists" class="track-card animate__animated animate__fadeIn">
-                <div class="card-header">
-                    <h2><i class="fas fa-list"></i> Playlists</h2>
+    
+        // Add playlists section
+        const contentGrid = document.querySelector('.content-grid');
+        if (contentGrid) {
+            contentGrid.insertAdjacentHTML('beforeend', `
+                <div id="playlists" class="track-card animate__animated animate__fadeIn">
+                    <div class="card-header">
+                        <h2><i class="fas fa-list"></i> Playlists</h2>
+                    </div>
+                    <div id="playlists-grid" class="playlists-grid"></div>
                 </div>
-                <div id="playlists-grid" class="playlists-grid"></div>
-            </div>
-        `);
-
-        await this.updatePlaylists(userData.id);
-        this.intervals.playlists = setInterval(() => this.updatePlaylists(userData.id), 300000);
+            `);
+    
+            await this.updatePlaylists(userData.id);
+            this.intervals.playlists = setInterval(() => this.updatePlaylists(userData.id), 300000);
+        }
     }
 
     async updatePlaylists(userId) {
