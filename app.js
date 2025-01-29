@@ -435,9 +435,9 @@ class VerszApp {
         }
     }
 
-    async loadProfile(identifier) {
+    async loadProfile(userId) {
         try {
-            const response = await fetch(`${config.backendUrl}/users/${identifier}`);
+            const response = await fetch(`${config.backendUrl}/users/${userId}`);
             if (!response.ok) {
                 if (response.status === 404) {
                     throw new Error('User not found');
@@ -446,23 +446,31 @@ class VerszApp {
             }
             
             const userData = await response.json();
-            const isOwnProfile = identifier === localStorage.getItem('spotify_user_id');
+            const isOwnProfile = userId === localStorage.getItem('spotify_user_id');
+            
+            // Update document title
+            document.title = `${userData.display_name || userData.id} - versz`;
             
             // Clear existing content and show profile section
             this.clearMainContent();
             await this.showProfileSection(userData, isOwnProfile);
         } catch (error) {
             console.error('Profile load error:', error);
-            throw error;
+            if (error.message === 'User not found' && !localStorage.getItem('spotify_user_id')) {
+                this.showLoginSection();
+            } else {
+                throw error;
+            }
         }
     }
+
     async handleRouting() {
         const pathParts = window.location.pathname.split('/').filter(Boolean);
         
         // Clear any existing intervals before loading new content
         this.clearIntervals();
-    
-        // If no path, show login or profile
+
+        // If no path, handle root
         if (pathParts.length === 0) {
             const userId = localStorage.getItem('spotify_user_id');
             if (!userId) {
@@ -473,28 +481,31 @@ class VerszApp {
             return;
         }
     
-        const [identifier, playlistUrl] = pathParts;
+        const [userId, playlistUrl] = pathParts;
     
         // Handle playlist view
         if (playlistUrl) {
             try {
-                await this.loadPlaylistView(identifier, playlistUrl);
+                await this.loadPlaylistView(userId, playlistUrl);
             } catch (error) {
                 console.error('Failed to load playlist:', error);
                 this.showError('Failed to load playlist');
-                this.showLoginSection();
+                await this.navigateToProfile(userId);
             }
             return;
         }
     
         // Handle profile view
         try {
-            await this.loadProfile(identifier);
+            await this.loadProfile(userId);
         } catch (error) {
-            console.error('Profile load error:', error);
             if (error.message === 'User not found') {
-                this.showError('Profile not found');
-                this.showLoginSection();
+                const loggedInUserId = localStorage.getItem('spotify_user_id');
+                if (loggedInUserId) {
+                    await this.navigateToProfile(loggedInUserId);
+                } else {
+                    this.showLoginSection();
+                }
             } else {
                 this.handleRoutingError(error);
             }
@@ -610,54 +621,85 @@ class VerszApp {
         main.appendChild(playlistView);
     }
 
-   async showProfileSection(userData, isOwnProfile) {
+    async showProfileSection(userData, isOwnProfile) {
         this.toggleSections('login-section', false);
         this.toggleSections('profile-section', true);
-    
-        // Update profile header with the new optimized design
+        
+        // Remove duplicate playlist sections if they exist
+        const existingPlaylistTabs = document.querySelectorAll('#playlists');
+        existingPlaylistTabs.forEach((tab, index) => {
+            if (index > 0) tab.remove();
+        });
+
+        // Update profile header with optimized layout
         const profileHeader = document.querySelector('.profile-header');
         if (profileHeader) {
             profileHeader.innerHTML = `
-                <div class="profile-info-container">
+                <div class="profile-info">
                     <img src="${userData.avatar_url || '/api/placeholder/96/96'}" 
                          alt="Profile" 
                          class="profile-avatar"
                          onerror="this.src='/api/placeholder/96/96'">
-                    <div class="profile-text">
-                        <h1 class="profile-name">${this.escapeHtml(userData.display_name || userData.id)}</h1>
-                        <a href="${userData.spotify_url}" 
-                           target="_blank" 
-                           class="spotify-profile-link">
-                            <i class="fab fa-spotify"></i> Spotify Profile
-                        </a>
+                    <div class="profile-details">
+                        <h1>${this.escapeHtml(userData.display_name || userData.id)}</h1>
+                        ${userData.spotify_url ? `
+                            <a href="${userData.spotify_url}" 
+                               target="_blank" 
+                               class="spotify-link">
+                                <i class="fab fa-spotify"></i> Open in Spotify
+                            </a>
+                        ` : ''}
                     </div>
                 </div>
             `;
         }
-    
+
+        // Update and start tracking
         const loggedInUserId = localStorage.getItem('spotify_user_id');
         if (loggedInUserId) {
             await this.updateUserDisplay(loggedInUserId, userData, isOwnProfile);
         }
-    
+
         await this.startTracking(userData.id);
         this.switchTab('recent-tracks');
-    
+        
         // Add playlists section
         const contentGrid = document.querySelector('.content-grid');
-        if (contentGrid) {
-            contentGrid.insertAdjacentHTML('beforeend', `
-                <div id="playlists" class="track-card animate__animated animate__fadeIn">
-                    <div class="card-header">
-                        <h2><i class="fas fa-list"></i> Playlists</h2>
-                    </div>
-                    <div id="playlists-grid" class="playlists-grid"></div>
+        contentGrid.insertAdjacentHTML('beforeend', `
+            <div id="playlists" class="track-card animate__animated animate__fadeIn">
+                <div class="card-header">
+                    <h2><i class="fas fa-list"></i> Playlists</h2>
                 </div>
-            `);
-    
-            await this.updatePlaylists(userData.id);
-            this.intervals.playlists = setInterval(() => this.updatePlaylists(userData.id), 300000);
-        }
+                <div id="playlists-grid" class="playlists-grid"></div>
+            </div>
+        `);
+
+        await this.updatePlaylists(userData.id);
+        this.intervals.playlists = setInterval(() => this.updatePlaylists(userData.id), 300000);
+    }
+    createTrackItem(track) {
+        return `
+            <div class="track-item">
+                <img src="${track.album_art || '/api/placeholder/48/48'}" 
+                     alt="Album Art" 
+                     class="track-artwork"
+                     onerror="this.src='/api/placeholder/48/48'">
+                <div class="track-details">
+                    <div class="track-name">${this.escapeHtml(track.track_name)}</div>
+                    <div class="track-artist">${this.escapeHtml(track.artist_name)}</div>
+                    <div class="track-meta">
+                        <span class="track-time">${this.formatDate(track.played_at)}</span>
+                        ${track.spotify_url ? `
+                            <a href="${track.spotify_url}" 
+                               target="_blank" 
+                               class="spotify-link">
+                                <i class="fab fa-spotify"></i>
+                            </a>
+                        ` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
     }
 
     async updatePlaylists(userId) {
@@ -824,21 +866,7 @@ class VerszApp {
         elements.list.innerHTML = tracks.map(track => this.createTrackItem(track)).join('');
     }
 
-    createTrackItem(track) {
-        return `
-            <div class="track-item">
-                <img src="${track.album_art || 'https://placehold.co/48'}" 
-                     alt="Album Art" 
-                     class="track-artwork"
-                     onerror="this.src='https://placehold.co/48'">
-                <div class="track-details">
-                    <div class="track-name">${this.escapeHtml(track.track_name)}</div>
-                    <div class="track-artist">${this.escapeHtml(track.artist_name)}</div>
-                    <div class="track-time">${this.formatDate(track.played_at)}</div>
-                </div>
-            </div>
-        `;
-    }
+    
 
     async updateTopTracks(userId) {
         const elements = {
