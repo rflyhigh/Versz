@@ -45,28 +45,30 @@
     <div class="loader"></div>
     <div id="message" class="message">Authenticating...</div>
     <div id="error" class="error"></div>
-    
+
     <script>
         // Handle authentication flow
         function handleCallback() {
             const params = new URLSearchParams(window.location.search);
             const error = params.get('error');
-            
+
             if (error) {
                 document.getElementById('loader').style.display = 'none';
                 document.getElementById('error').textContent = `Authentication failed: ${error}`;
-                setTimeout(() => { window.location.href = '/'; }, 3000);
+                setTimeout(() => {
+                    window.location.href = '/';
+                }, 3000);
                 return;
             }
-            
+
             // Store the current path for redirect after authentication
             if (window.location.pathname !== '/callback.html') {
                 sessionStorage.setItem('redirect_path', window.location.pathname);
             }
-            
+
             // Redirect to home page with query parameters
             const redirectUrl = '/' + window.location.search;
-            
+
             // Add a small delay to ensure storage is complete
             setTimeout(() => {
                 window.location.replace(redirectUrl);
@@ -80,7 +82,9 @@
             } catch (error) {
                 document.getElementById('loader').style.display = 'none';
                 document.getElementById('error').textContent = 'An unexpected error occurred. Redirecting...';
-                setTimeout(() => { window.location.href = '/'; }, 3000);
+                setTimeout(() => {
+                    window.location.href = '/';
+                }, 3000);
             }
         });
     </script>
