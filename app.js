@@ -469,46 +469,51 @@ class VerszApp {
         
         // Clear any existing intervals before loading new content
         this.clearIntervals();
-
-        // If no path, handle root
-        if (pathParts.length === 0) {
-            const userId = localStorage.getItem('spotify_user_id');
-            if (!userId) {
-                this.showLoginSection();
+    
+        try {
+            // If no path, handle root
+            if (pathParts.length === 0) {
+                const userId = localStorage.getItem('spotify_user_id');
+                if (!userId) {
+                    this.showLoginSection();
+                    return;
+                }
+                await this.navigateToProfile(userId);
                 return;
             }
-            await this.navigateToProfile(userId);
-            return;
-        }
     
-        const [userId, playlistUrl] = pathParts;
+            const [userId, playlistUrl] = pathParts;
     
-        // Handle playlist view
-        if (playlistUrl) {
-            try {
-                await this.loadPlaylistView(userId, playlistUrl);
-            } catch (error) {
-                console.error('Failed to load playlist:', error);
-                this.showError('Failed to load playlist');
-                await this.navigateToProfile(userId);
-            }
-            return;
-        }
-    
-        // Handle profile view
-        try {
-            await this.loadProfile(userId);
-        } catch (error) {
-            if (error.message === 'User not found') {
-                const loggedInUserId = localStorage.getItem('spotify_user_id');
-                if (loggedInUserId) {
-                    await this.navigateToProfile(loggedInUserId);
-                } else {
+            // Check if user exists before proceeding
+            const userResponse = await fetch(`${config.backendUrl}/users/${userId}`);
+            if (!userResponse.ok) {
+                // If user not found and no logged-in user, show login
+                if (!localStorage.getItem('spotify_user_id')) {
                     this.showLoginSection();
+                    return;
                 }
-            } else {
-                this.handleRoutingError(error);
+                // If user not found but we're logged in, redirect to own profile
+                await this.navigateToProfile(localStorage.getItem('spotify_user_id'));
+                return;
             }
+    
+            // Handle playlist view
+            if (playlistUrl) {
+                try {
+                    await this.loadPlaylistView(userId, playlistUrl);
+                } catch (error) {
+                    console.error('Failed to load playlist:', error);
+                    this.showError('Failed to load playlist');
+                    await this.navigateToProfile(userId);
+                }
+                return;
+            }
+    
+            // Handle profile view
+            await this.loadProfile(userId);
+    
+        } catch (error) {
+            this.handleRoutingError(error);
         }
     }
 
@@ -622,85 +627,92 @@ class VerszApp {
     }
 
     async showProfileSection(userData, isOwnProfile) {
-        this.toggleSections('login-section', false);
-        this.toggleSections('profile-section', true);
-        
-        // Remove duplicate playlist sections if they exist
-        const existingPlaylistTabs = document.querySelectorAll('#playlists');
-        existingPlaylistTabs.forEach((tab, index) => {
-            if (index > 0) tab.remove();
-        });
-
-        // Update profile header with optimized layout
-        const profileHeader = document.querySelector('.profile-header');
-        if (profileHeader) {
-            profileHeader.innerHTML = `
-                <div class="profile-info">
-                    <img src="${userData.avatar_url || '/api/placeholder/96/96'}" 
-                         alt="Profile" 
-                         class="profile-avatar"
-                         onerror="this.src='/api/placeholder/96/96'">
-                    <div class="profile-details">
-                        <h1>${this.escapeHtml(userData.display_name || userData.id)}</h1>
-                        ${userData.spotify_url ? `
-                            <a href="${userData.spotify_url}" 
-                               target="_blank" 
-                               class="spotify-link">
-                                <i class="fab fa-spotify"></i> Open in Spotify
-                            </a>
-                        ` : ''}
-                    </div>
-                </div>
-            `;
-        }
-
-        // Update and start tracking
-        const loggedInUserId = localStorage.getItem('spotify_user_id');
-        if (loggedInUserId) {
-            await this.updateUserDisplay(loggedInUserId, userData, isOwnProfile);
-        }
-
-        await this.startTracking(userData.id);
-        this.switchTab('recent-tracks');
-        
-        // Add playlists section
-        const contentGrid = document.querySelector('.content-grid');
-        contentGrid.insertAdjacentHTML('beforeend', `
-            <div id="playlists" class="track-card animate__animated animate__fadeIn">
-                <div class="card-header">
-                    <h2><i class="fas fa-list"></i> Playlists</h2>
-                </div>
-                <div id="playlists-grid" class="playlists-grid"></div>
-            </div>
-        `);
-
-        await this.updatePlaylists(userData.id);
-        this.intervals.playlists = setInterval(() => this.updatePlaylists(userData.id), 300000);
+    this.toggleSections('login-section', false);
+    this.toggleSections('profile-section', true);
+    
+    // Create content grid if it doesn't exist
+    let contentGrid = document.querySelector('.content-grid');
+    if (!contentGrid) {
+        contentGrid = document.createElement('div');
+        contentGrid.className = 'content-grid';
+        document.getElementById('profile-section').appendChild(contentGrid);
     }
-    createTrackItem(track) {
-        return `
-            <div class="track-item">
-                <img src="${track.album_art || '/api/placeholder/48/48'}" 
-                     alt="Album Art" 
-                     class="track-artwork"
-                     onerror="this.src='/api/placeholder/48/48'">
-                <div class="track-details">
-                    <div class="track-name">${this.escapeHtml(track.track_name)}</div>
-                    <div class="track-artist">${this.escapeHtml(track.artist_name)}</div>
-                    <div class="track-meta">
-                        <span class="track-time">${this.formatDate(track.played_at)}</span>
-                        ${track.spotify_url ? `
-                            <a href="${track.spotify_url}" 
-                               target="_blank" 
-                               class="spotify-link">
-                                <i class="fab fa-spotify"></i>
-                            </a>
-                        ` : ''}
-                    </div>
+
+    // Clear existing content
+    contentGrid.innerHTML = '';
+
+    // Add track sections
+    contentGrid.innerHTML = `
+        <div id="current-track" class="track-card animate__animated animate__fadeIn">
+            <div class="card-header">
+                <h2><i class="fas fa-play"></i> Now Playing</h2>
+            </div>
+            <div id="current-track-info" class="track-info-container"></div>
+        </div>
+
+        <div id="recent-tracks" class="track-card animate__animated animate__fadeIn">
+            <div class="card-header">
+                <h2><i class="fas fa-history"></i> Recent Tracks</h2>
+                <span class="count">(<span id="tracks-count">0</span>)</span>
+            </div>
+            <div id="tracks-list" class="tracks-container"></div>
+        </div>
+
+        <div id="top-tracks" class="track-card animate__animated animate__fadeIn hidden">
+            <div class="card-header">
+                <h2><i class="fas fa-chart-line"></i> Top Tracks</h2>
+            </div>
+            <div id="top-tracks-list" class="tracks-container"></div>
+        </div>
+
+        <div id="top-artists" class="track-card animate__animated animate__fadeIn hidden">
+            <div class="card-header">
+                <h2><i class="fas fa-users"></i> Top Artists</h2>
+                <span class="count">(<span id="artists-count">0</span>)</span>
+            </div>
+            <div id="top-artists-list" class="tracks-container"></div>
+        </div>
+
+        <div id="playlists" class="track-card animate__animated animate__fadeIn">
+            <div class="card-header">
+                <h2><i class="fas fa-list"></i> Playlists</h2>
+            </div>
+            <div id="playlists-grid" class="playlists-grid"></div>
+        </div>
+    `;
+
+    // Update profile header
+    const profileHeader = document.querySelector('.profile-header');
+    if (profileHeader) {
+        profileHeader.innerHTML = `
+            <div class="profile-info">
+                <img src="${userData.avatar_url || '/api/placeholder/96/96'}" 
+                     alt="Profile" 
+                     class="profile-avatar"
+                     onerror="this.src='/api/placeholder/96/96'">
+                <div class="profile-details">
+                    <h1>${this.escapeHtml(userData.display_name || userData.id)}</h1>
+                    ${userData.spotify_url ? `
+                        <a href="${userData.spotify_url}" 
+                           target="_blank" 
+                           class="spotify-link">
+                            <i class="fab fa-spotify"></i> Open in Spotify
+                        </a>
+                    ` : ''}
                 </div>
             </div>
         `;
     }
+
+    // Update and start tracking
+    const loggedInUserId = localStorage.getItem('spotify_user_id');
+    if (loggedInUserId) {
+        await this.updateUserDisplay(loggedInUserId, userData, isOwnProfile);
+    }
+
+    await this.startTracking(userData.id);
+    this.switchTab('recent-tracks');
+}
 
     async updatePlaylists(userId) {
         const playlistsGrid = document.getElementById('playlists-grid');
