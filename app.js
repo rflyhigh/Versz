@@ -410,6 +410,12 @@ class VerszApp {
     }
 
     navigateToProfile(userId) {
+        if (!userId) {
+            console.error('Attempted to navigate to profile with no userId');
+            this.showLoginSection();
+            return;
+        }
+    
         const newPath = `/${userId}`;
         if (window.location.pathname !== newPath) {
             history.pushState({}, '', newPath);
@@ -418,22 +424,10 @@ class VerszApp {
     }
 
     async handleRouting() {
-        const path = window.location.pathname;
-        const viewingUserId = this.getViewingUserId(path);
+        const pathParts = window.location.pathname.split('/').filter(Boolean);
         
-        if (!viewingUserId) {
-            this.showLoginSection();
-            return;
-        }
-
-        try {
-            await this.loadProfile(viewingUserId);
-        } catch (error) {
-            this.handleRoutingError(error);
-        }
-        path = window.location.pathname.split('/').filter(Boolean);
-        
-        if (path.length === 0) {
+        // If no path, handle root
+        if (pathParts.length === 0) {
             const userId = localStorage.getItem('spotify_user_id');
             if (!userId) {
                 this.showLoginSection();
@@ -442,11 +436,11 @@ class VerszApp {
             this.navigateToProfile(userId);
             return;
         }
-
-        const [userId, playlistUrl] = path;
-
+    
+        const [userId, playlistUrl] = pathParts;
+    
+        // Handle playlist view
         if (playlistUrl) {
-            // Handle playlist view
             try {
                 await this.loadPlaylistView(userId, playlistUrl);
             } catch (error) {
@@ -454,15 +448,27 @@ class VerszApp {
                 this.showError('Failed to load playlist');
                 this.navigateToProfile(userId);
             }
-        } else {
-            // Handle profile view
-            try {
-                await this.loadProfile(userId);
-            } catch (error) {
+            return;
+        }
+    
+        // Handle profile view
+        try {
+            await this.loadProfile(userId);
+        } catch (error) {
+            if (error.message === 'User not found') {
+                const loggedInUserId = localStorage.getItem('spotify_user_id');
+                if (loggedInUserId) {
+                    this.navigateToProfile(loggedInUserId);
+                } else {
+                    this.showLoginSection();
+                }
+            } else {
                 this.handleRoutingError(error);
             }
         }
     }
+
+    
     formatDuration(ms) {
         const minutes = Math.floor(ms / 60000);
         const seconds = Math.floor((ms % 60000) / 1000);
@@ -476,12 +482,22 @@ class VerszApp {
     }
 
     async loadProfile(userId) {
-        const response = await fetch(`${config.backendUrl}/users/${userId}`);
-        if (!response.ok) throw new Error('User not found');
-        
-        const userData = await response.json();
-        const isOwnProfile = userId === localStorage.getItem('spotify_user_id');
-        await this.showProfileSection(userData, isOwnProfile);
+        try {
+            const response = await fetch(`${config.backendUrl}/users/${userId}`);
+            if (!response.ok) {
+                if (response.status === 404) {
+                    throw new Error('User not found');
+                }
+                throw new Error('Failed to load profile');
+            }
+            
+            const userData = await response.json();
+            const isOwnProfile = userId === localStorage.getItem('spotify_user_id');
+            await this.showProfileSection(userData, isOwnProfile);
+        } catch (error) {
+            console.error('Profile load error:', error);
+            throw error; // Propagate the error to be handled by handleRouting
+        }
     }
 
     handleRoutingError(error) {
@@ -497,6 +513,11 @@ class VerszApp {
         this.toggleSections('profile-section', false);
         this.toggleSections('user-info', false);
         this.clearIntervals();
+        
+        // Clear URL if we're showing login
+        if (window.location.pathname !== '/') {
+            history.pushState({}, '', '/');
+        }
     }
 
     toggleSections(sectionId, show) {
