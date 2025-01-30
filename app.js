@@ -4,14 +4,16 @@ class VerszApp {
             currentTrack: null,
             recentTracks: null,
             topTracks: null,
-            topArtists: null
+            topArtists: null,
+            playlists: null  // New interval for playlists
         };
         this.searchDebounceTimeout = null;
         this.urlCheckTimeout = null;
         this.dataCache = {
             recentTracks: [],
             topTracks: [],
-            topArtists: []
+            topArtists: [],
+            playlists: []  // New cache for playlists
         };
 
         this.initializeApp();
@@ -447,31 +449,135 @@ class VerszApp {
         await this.showProfileSection(userData, isOwnProfile);
     }
 
-    async handleRouting() {
-        const path = window.location.pathname;
-        const viewingUserId = this.getViewingUserId(path);
-        
-        if (!viewingUserId) {
-            this.showLoginSection();
+    renderPlaylists(container, playlists) {
+        if (playlists.length === 0) {
+            container.innerHTML = this.createPlaceholder('music', 'No playlists available');
             return;
         }
 
+        container.innerHTML = playlists.map(playlist => this.createPlaylistItem(playlist)).join('');
+    }
+
+    createPlaylistItem(playlist) {
+        return `
+            <a href="/${this.getViewingUserId(window.location.pathname)}/${playlist.url}" 
+               class="playlist-item">
+                <img src="${playlist.cover_image || 'https://placehold.co/96'}" 
+                     alt="Playlist Cover" 
+                     class="playlist-artwork"
+                     onerror="this.src='https://placehold.co/96'">
+                <div class="playlist-details">
+                    <div class="playlist-name">${this.escapeHtml(playlist.name)}</div>
+                    <div class="playlist-tracks">${playlist.total_tracks} tracks</div>
+                </div>
+            </a>
+        `;
+    }
+
+    renderPlaylistsError(container) {
+        container.innerHTML = this.createPlaceholder('exclamation-circle', 'Unable to fetch playlists');
+    }
+
+    async handleRouting() {
+        const path = window.location.pathname;
+        const pathParts = path.split('/').filter(Boolean);
+        
+        if (pathParts.length === 0) {
+            const userId = localStorage.getItem('spotify_user_id');
+            if (!userId) {
+                this.showLoginSection();
+                return;
+            }
+            this.navigateToProfile(userId);
+            return;
+        }
+        
+        // Check if this is a playlist route
+        if (pathParts.length === 2) {
+            try {
+                await this.loadPlaylist(pathParts[1]);
+                return;
+            } catch (error) {
+                console.error('Failed to load playlist:', error);
+                this.showError('Playlist not found');
+            }
+        }
+        
+        // Otherwise, treat as a profile route
+        const viewingUserId = pathParts[0];
         try {
             await this.loadProfile(viewingUserId);
         } catch (error) {
-            // Clear any existing errors before showing new ones
-            const errorContainer = document.getElementById('error-container');
-            if (errorContainer) {
-                errorContainer.innerHTML = '';
-            }
-            
             this.handleRoutingError(error);
-            
-            // If not logged in, show login section
-            if (!localStorage.getItem('spotify_user_id')) {
-                this.showLoginSection();
-            }
         }
+    }
+
+    async loadPlaylist(playlistUrl) {
+        const response = await fetch(`${config.backendUrl}/playlists/${playlistUrl}`);
+        if (!response.ok) throw new Error('Playlist not found');
+        
+        const playlistData = await response.json();
+        this.showPlaylistSection(playlistData);
+    }
+
+    showPlaylistSection(playlistData) {
+        // Hide other sections
+        this.toggleSections('login-section', false);
+        this.toggleSections('profile-section', false);
+        
+        // Show playlist section
+        const mainContent = document.querySelector('main');
+        mainContent.innerHTML = this.createPlaylistView(playlistData);
+    }
+
+    createPlaylistView(playlist) {
+        const formatDuration = (ms) => {
+            const minutes = Math.floor(ms / 60000);
+            const seconds = Math.floor((ms % 60000) / 1000);
+            return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        };
+
+        return `
+            <div class="top-bar">
+                <a href="/${playlist.owner.profile_url}" class="back-button">←</a>
+            </div>
+
+            <div class="container">
+                <div class="header">
+                    <div class="playlist-cover">
+                        <img src="${playlist.cover_image || 'https://placehold.co/300'}" 
+                             alt="Playlist cover"
+                             onerror="this.src='https://placehold.co/300'">
+                    </div>
+                    <div class="playlist-info">
+                        <div class="playlist-type">Playlist</div>
+                        <h1 class="playlist-title">${this.escapeHtml(playlist.playlist_name)}</h1>
+                        <div class="playlist-meta">
+                            Created by ${this.escapeHtml(playlist.owner.display_name)} • 
+                            ${playlist.total_tracks} tracks
+                        </div>
+                    </div>
+                </div>
+
+                <ul class="track-list">
+                    ${playlist.tracks.map((track, index) => `
+                        <li class="track-item">
+                            <div class="track-art-container">
+                                <img src="${track.album_art || 'https://placehold.co/48'}" 
+                                     alt="Track art" 
+                                     class="track-art"
+                                     onerror="this.src='https://placehold.co/48'">
+                            </div>
+                            <div class="track-info">
+                                <div class="track-title">${this.escapeHtml(track.track_name)}</div>
+                                <div class="track-artist">${this.escapeHtml(track.artist_name)}</div>
+                            </div>
+                            <span class="track-duration">${formatDuration(track.duration)}</span>
+                        </li>
+                    `).join('')}
+                </ul>
+            </div>
+        `;
     }
 
     handleRoutingError(error) {
@@ -590,7 +696,8 @@ class VerszApp {
                 this.updateCurrentTrack(userId),
                 this.updateRecentTracks(userId),
                 this.updateTopTracks(userId),    
-                this.updateTopArtists(userId)
+                this.updateTopArtists(userId),
+                this.updatePlaylists(userId)  // Add playlist update
             ]);
 
             this.setupTrackingIntervals(userId);
@@ -602,11 +709,32 @@ class VerszApp {
         }
     }
 
+    
     setupTrackingIntervals(userId) {
+        // Add to existing intervals
         this.intervals.currentTrack = setInterval(() => this.updateCurrentTrack(userId), 30000);
         this.intervals.recentTracks = setInterval(() => this.updateRecentTracks(userId), 60000);
         this.intervals.topTracks = setInterval(() => this.updateTopTracks(userId), 60000);
         this.intervals.topArtists = setInterval(() => this.updateTopArtists(userId), 60000);
+        this.intervals.playlists = setInterval(() => this.updatePlaylists(userId), 300000); // 5 minutes
+    }
+
+    async updatePlaylists(userId) {
+        const playlistsContainer = document.getElementById('playlists-list');
+        if (!playlistsContainer) return;
+        
+        try {
+            const response = await fetch(`${config.backendUrl}/users/${userId}/playlists`);
+            if (!response.ok) throw new Error('Failed to fetch playlists');
+            
+            const playlists = await response.json();
+            this.dataCache.playlists = playlists;
+            
+            this.renderPlaylists(playlistsContainer, playlists);
+        } catch (error) {
+            console.error('Failed to update playlists:', error);
+            this.renderPlaylistsError(playlistsContainer);
+        }
     }
 
     async updateCurrentTrack(userId) {
