@@ -7,7 +7,7 @@ const config = {
         'user-read-recently-played',
         'user-read-playback-state',
         'user-top-read',
-        'playlist-read-private',  // You might need this instead of collaborative
-        'playlist-read-public'
+        'playlist-read-collaborative',
+        'playlist-read-private',
     ].join(' ')
 };
