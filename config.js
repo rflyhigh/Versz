@@ -6,7 +6,7 @@ const config = {
         'user-read-currently-playing',
         'user-read-recently-played',
         'user-read-playback-state',
-        'user-top-read',
+        'user-top-read',                // Fixed scope
         'playlist-read-collaborative',
         'playlist-read-public'
     ].join(' ')
