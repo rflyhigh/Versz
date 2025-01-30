@@ -556,30 +556,40 @@ class VerszApp {
                             Created by ${this.escapeHtml(playlist.owner.display_name)} • 
                             ${playlist.total_tracks} tracks
                         </div>
+                        ${playlist.spotify_url ? 
+                            `<a href="${playlist.spotify_url}" 
+                                target="_blank" 
+                                class="spotify-link">
+                                Open in Spotify
+                            </a>` : 
+                            ''}
                     </div>
                 </div>
 
                 <ul class="track-list">
                     ${playlist.tracks.map((track, index) => `
-                        <li class="track-item">
-                            <div class="track-art-container">
-                                <img src="${track.album_art || 'https://placehold.co/48'}" 
-                                     alt="Track art" 
-                                     class="track-art"
-                                     onerror="this.src='https://placehold.co/48'">
-                            </div>
-                            <div class="track-info">
-                                <div class="track-title">${this.escapeHtml(track.track_name)}</div>
-                                <div class="track-artist">${this.escapeHtml(track.artist_name)}</div>
-                            </div>
-                            <span class="track-duration">${formatDuration(track.duration)}</span>
+                        <li class="track-item hover:bg-gray-100 transition-colors">
+                            <a href="${track.spotify_url || '#'}" 
+                               target="_blank"
+                               class="track-content">
+                                <div class="track-art-container">
+                                    <img src="${track.album_art || 'https://placehold.co/48'}" 
+                                         alt="Track art" 
+                                         class="track-art"
+                                         onerror="this.src='https://placehold.co/48'">
+                                </div>
+                                <div class="track-info">
+                                    <div class="track-title">${this.escapeHtml(track.track_name)}</div>
+                                    <div class="track-artist">${this.escapeHtml(track.artist_name)}</div>
+                                </div>
+                                <span class="track-duration">${formatDuration(track.duration)}</span>
+                            </a>
                         </li>
                     `).join('')}
                 </ul>
             </div>
         `;
     }
-
     handleRoutingError(error) {
         console.error('Failed to load profile:', error);
         this.showError('User not found');
