@@ -2,7 +2,8 @@ from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2AuthorizationCodeBearer
 from typing import Optional, List
-from databases import Database
+from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import IndexModel, ASCENDING, DESCENDING
 import httpx
 import os
 from datetime import datetime, timedelta
@@ -12,6 +13,7 @@ from dotenv import load_dotenv
 from tenacity import retry, stop_after_attempt, wait_exponential
 import logging
 import asyncio
+from bson import ObjectId
 from contextlib import asynccontextmanager
 
 # Configure logging
@@ -27,11 +29,11 @@ load_dotenv()
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 SPOTIFY_REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI")
-DATABASE_PATH = "spotify01.db"
-DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
+MONGODB_URI = os.getenv("MONGODB_URI")
 
-# Initialize database
-database = Database(DATABASE_URL)
+# Initialize MongoDB client
+client = AsyncIOMotorClient(MONGODB_URI)
+db = client.spotify_db
 
 # Initialize scheduler
 scheduler = AsyncIOScheduler()
@@ -49,82 +51,41 @@ app.add_middleware(
 )
 
 async def init_db():
-    async with database.connection() as connection:
-        await connection.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id TEXT PRIMARY KEY,
-                spotify_id TEXT UNIQUE,
-                custom_url TEXT UNIQUE,
-                access_token TEXT,
-                refresh_token TEXT,
-                token_expiry TIMESTAMP,
-                display_name TEXT,
-                avatar_url TEXT,
-                last_update TIMESTAMP
-            )
-        """)
-        
-        await connection.execute("""
-            CREATE TABLE IF NOT EXISTS tracks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT,
-                track_id TEXT,
-                track_name TEXT,
-                artist_name TEXT,
-                album_name TEXT,
-                album_art TEXT,
-                played_at TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users (id),
-                UNIQUE(user_id, track_id, played_at)
-            )
-        """)
+    """Initialize MongoDB indexes"""
+    # Users collection indexes
+    await db.users.create_indexes([
+        IndexModel([("spotify_id", ASCENDING)], unique=True),
+        IndexModel([("custom_url", ASCENDING)], unique=True)
+    ])
 
-        await connection.execute("""
-            CREATE TABLE IF NOT EXISTS top_tracks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT,
-                track_id TEXT,
-                track_name TEXT,
-                artist_name TEXT,
-                album_name TEXT,
-                album_art TEXT,
-                popularity INTEGER,
-                FOREIGN KEY (user_id) REFERENCES users (id)
-            )
-        """)
+    # Tracks collection indexes
+    await db.tracks.create_indexes([
+        IndexModel([("user_id", ASCENDING), ("track_id", ASCENDING), ("played_at", ASCENDING)], unique=True),
+        IndexModel([("played_at", DESCENDING)])
+    ])
 
-        await connection.execute("""
-            CREATE TABLE IF NOT EXISTS top_artists (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT,
-                artist_id TEXT,
-                artist_name TEXT,
-                artist_image TEXT,
-                popularity INTEGER,
-                FOREIGN KEY (user_id) REFERENCES users (id)
-            )
-        """)
-        
-        await connection.execute("""
-            CREATE TABLE IF NOT EXISTS playlists (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT,
-                playlist_id TEXT,
-                playlist_name TEXT,
-                playlist_url TEXT UNIQUE,
-                cover_image TEXT,
-                spotify_url TEXT,
-                total_tracks INTEGER,
-                FOREIGN KEY (user_id) REFERENCES users (id)
-            )
-        """)
+    # Top tracks collection indexes
+    await db.top_tracks.create_indexes([
+        IndexModel([("user_id", ASCENDING)]),
+        IndexModel([("updated_at", ASCENDING)])
+    ])
+
+    # Top artists collection indexes
+    await db.top_artists.create_indexes([
+        IndexModel([("user_id", ASCENDING)]),
+        IndexModel([("updated_at", ASCENDING)])
+    ])
+
+    # Playlists collection indexes
+    await db.playlists.create_indexes([
+        IndexModel([("user_id", ASCENDING)]),
+        IndexModel([("spotify_url", ASCENDING)], unique=True)
+    ])
 
 # Utility functions
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 async def get_spotify_data(client, endpoint: str, token: str):
-    """
-    Fetches data from Spotify API with retry mechanism
-    """
+    """Fetches data from Spotify API with retry mechanism"""
     try:
         response = await client.get(
             f"https://api.spotify.com/v1/{endpoint}",
@@ -137,9 +98,7 @@ async def get_spotify_data(client, endpoint: str, token: str):
         raise
 
 async def refresh_token(user_id: str, refresh_token: str):
-    """
-    Refreshes the Spotify access token
-    """
+    """Refreshes the Spotify access token"""
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -159,14 +118,14 @@ async def refresh_token(user_id: str, refresh_token: str):
                 
             token_data = response.json()
             
-            query = """
-                UPDATE users 
-                SET access_token = :token, token_expiry = datetime('now', '+1 hour')
-                WHERE spotify_id = :user_id
-            """
-            await database.execute(
-                query=query,
-                values={"token": token_data["access_token"], "user_id": user_id}
+            await db.users.update_one(
+                {"spotify_id": user_id},
+                {
+                    "$set": {
+                        "access_token": token_data["access_token"],
+                        "token_expiry": datetime.utcnow() + timedelta(hours=1)
+                    }
+                }
             )
                 
             return token_data["access_token"]
@@ -175,46 +134,33 @@ async def refresh_token(user_id: str, refresh_token: str):
         raise
 
 async def get_valid_token(user_id: str):
-    """
-    Gets a valid token, refreshing if necessary
-    """
-    query = """
-        SELECT access_token, refresh_token, token_expiry 
-        FROM users 
-        WHERE spotify_id = :user_id
-    """
-    user = await database.fetch_one(query=query, values={"user_id": user_id})
+    """Gets a valid token, refreshing if necessary"""
+    user = await db.users.find_one({"spotify_id": user_id})
     
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
         
-    token_expiry = datetime.strptime(user['token_expiry'], '%Y-%m-%d %H:%M:%S')
-    
-    if token_expiry <= datetime.now():
+    if datetime.utcnow() >= user['token_expiry']:
         return await refresh_token(user_id, user['refresh_token'])
         
     return user['access_token']
 
 def is_valid_url(url: str):
-    """
-    Validates custom URL format
-    """
+    """Validates custom URL format"""
     import re
     pattern = re.compile("^[a-zA-Z0-9_-]{3,30}$")
     return bool(pattern.match(url))
 
 # Scheduled tasks
 async def update_recent_tracks():
-    """
-    Updates recent tracks for all users
-    """
+    """Updates recent tracks for all users every 15 minutes"""
     try:
-        query = """
-            SELECT spotify_id, access_token, refresh_token 
-            FROM users
-            WHERE datetime('now', '-15 minutes') >= COALESCE(last_update, datetime('now', '-1 day'))
-        """
-        users = await database.fetch_all(query=query)
+        users = await db.users.find({
+            "$or": [
+                {"last_update": {"$exists": False}},
+                {"last_update": {"$lte": datetime.utcnow() - timedelta(minutes=15)}}
+            ]
+        }).to_list(length=None)
         
         async with httpx.AsyncClient() as client:
             for user in users:
@@ -227,40 +173,36 @@ async def update_recent_tracks():
                         token
                     )
                     
-                    async with database.transaction():
-                        for track in tracks_data["items"]:
-                            try:
-                                query = """
-                                    INSERT INTO tracks
-                                    (user_id, track_id, track_name, artist_name, album_name, album_art, played_at)
-                                    VALUES (:user_id, :track_id, :track_name, :artist_name, :album_name, :album_art, :played_at)
-                                    ON CONFLICT(user_id, track_id, played_at) DO NOTHING
-                                """
-                                await database.execute(
-                                    query=query,
-                                    values={
-                                        "user_id": user['spotify_id'],
-                                        "track_id": track["track"]["id"],
-                                        "track_name": track["track"]["name"],
-                                        "artist_name": track["track"]["artists"][0]["name"],
-                                        "album_name": track["track"]["album"]["name"],
-                                        "album_art": track["track"]["album"]["images"][0]["url"] if track["track"]["album"]["images"] else None,
-                                        "played_at": track["played_at"],
-                                    }
-                                )
-                            except Exception as e:
-                                logger.error(f"Error inserting track: {str(e)}")
-                                continue
-                        
-                        # Update last_update timestamp
-                        await database.execute(
-                            """
-                            UPDATE users 
-                            SET last_update = datetime('now') 
-                            WHERE spotify_id = :user_id
-                            """,
-                            {"user_id": user['spotify_id']}
-                        )
+                    # Use bulk operations for better performance
+                    operations = []
+                    for track in tracks_data["items"]:
+                        operations.append({
+                            "replaceOne": {
+                                "filter": {
+                                    "user_id": user['spotify_id'],
+                                    "track_id": track["track"]["id"],
+                                    "played_at": track["played_at"]
+                                },
+                                "replacement": {
+                                    "user_id": user['spotify_id'],
+                                    "track_id": track["track"]["id"],
+                                    "track_name": track["track"]["name"],
+                                    "artist_name": track["track"]["artists"][0]["name"],
+                                    "album_name": track["track"]["album"]["name"],
+                                    "album_art": track["track"]["album"]["images"][0]["url"] if track["track"]["album"]["images"] else None,
+                                    "played_at": track["played_at"]
+                                },
+                                "upsert": True
+                            }
+                        })
+                    
+                    if operations:
+                        await db.tracks.bulk_write(operations)
+                    
+                    await db.users.update_one(
+                        {"spotify_id": user['spotify_id']},
+                        {"$set": {"last_update": datetime.utcnow()}}
+                    )
                         
                 except Exception as e:
                     logger.error(f"Error updating tracks for user {user['spotify_id']}: {str(e)}")
@@ -269,11 +211,14 @@ async def update_recent_tracks():
         logger.error(f"Error in update_recent_tracks: {str(e)}")
 
 async def update_top_items():
-    """
-    Updates top tracks and artists for all users
-    """
+    """Updates top tracks and artists for all users daily"""
     try:
-        users = await database.fetch_all("SELECT spotify_id FROM users")
+        users = await db.users.find({
+            "$or": [
+                {"top_items_update": {"$exists": False}},
+                {"top_items_update": {"$lte": datetime.utcnow() - timedelta(days=1)}}
+            ]
+        }).to_list(length=None)
         
         async with httpx.AsyncClient() as client:
             for user in users:
@@ -287,31 +232,22 @@ async def update_top_items():
                         token
                     )
                     
-                    async with database.transaction():
-                        # Clear existing top tracks
-                        await database.execute(
-                            "DELETE FROM top_tracks WHERE user_id = :user_id",
-                            {"user_id": user['spotify_id']}
-                        )
-                        
-                        # Insert new top tracks
-                        for track in tracks_data["items"]:
-                            await database.execute(
-                                """
-                                INSERT INTO top_tracks
-                                (user_id, track_id, track_name, artist_name, album_name, album_art, popularity)
-                                VALUES (:user_id, :track_id, :track_name, :artist_name, :album_name, :album_art, :popularity)
-                                """,
-                                {
-                                    "user_id": user['spotify_id'],
-                                    "track_id": track["id"],
-                                    "track_name": track["name"],
-                                    "artist_name": track["artists"][0]["name"],
-                                    "album_name": track["album"]["name"],
-                                    "album_art": track["album"]["images"][0]["url"] if track["album"]["images"] else None,
-                                    "popularity": track["popularity"],
-                                }
-                            )
+                    # Replace all top tracks for user
+                    await db.top_tracks.delete_many({"user_id": user['spotify_id']})
+                    if tracks_data["items"]:
+                        await db.top_tracks.insert_many([
+                            {
+                                "user_id": user['spotify_id'],
+                                "track_id": track["id"],
+                                "track_name": track["name"],
+                                "artist_name": track["artists"][0]["name"],
+                                "album_name": track["album"]["name"],
+                                "album_art": track["album"]["images"][0]["url"] if track["album"]["images"] else None,
+                                "popularity": track["popularity"],
+                                "updated_at": datetime.utcnow()
+                            }
+                            for track in tracks_data["items"]
+                        ])
                     
                     # Get top artists
                     artists_data = await get_spotify_data(
@@ -320,29 +256,25 @@ async def update_top_items():
                         token
                     )
                     
-                    async with database.transaction():
-                        # Clear existing top artists
-                        await database.execute(
-                            "DELETE FROM top_artists WHERE user_id = :user_id",
-                            {"user_id": user['spotify_id']}
-                        )
-                        
-                        # Insert new top artists
-                        for artist in artists_data["items"]:
-                            await database.execute(
-                                """
-                                INSERT INTO top_artists
-                                (user_id, artist_id, artist_name, artist_image, popularity)
-                                VALUES (:user_id, :artist_id, :artist_name, :artist_image, :popularity)
-                                """,
-                                {
-                                    "user_id": user['spotify_id'],
-                                    "artist_id": artist["id"],
-                                    "artist_name": artist["name"],
-                                    "artist_image": artist["images"][0]["url"] if artist["images"] else None,
-                                    "popularity": artist["popularity"],
-                                }
-                            )
+                    # Replace all top artists for user
+                    await db.top_artists.delete_many({"user_id": user['spotify_id']})
+                    if artists_data["items"]:
+                        await db.top_artists.insert_many([
+                            {
+                                "user_id": user['spotify_id'],
+                                "artist_id": artist["id"],
+                                "artist_name": artist["name"],
+                                "artist_image": artist["images"][0]["url"] if artist["images"] else None,
+                                "popularity": artist["popularity"],
+                                "updated_at": datetime.utcnow()
+                            }
+                            for artist in artists_data["items"]
+                        ])
+                    
+                    await db.users.update_one(
+                        {"spotify_id": user['spotify_id']},
+                        {"$set": {"top_items_update": datetime.utcnow()}}
+                    )
                     
                 except Exception as e:
                     logger.error(f"Error updating top items for user {user['spotify_id']}: {str(e)}")
@@ -350,39 +282,15 @@ async def update_top_items():
     except Exception as e:
         logger.error(f"Error in update_top_items: {str(e)}")
 
-# FastAPI startup and shutdown events
-@app.on_event("startup")
-async def startup_event():
-    await database.connect()
-    await init_db()
-    scheduler.add_job(update_recent_tracks, 'interval', minutes=1)
-    scheduler.add_job(update_top_items, 'interval', minutes=1)
-    scheduler.add_job(update_user_playlists, 'interval', minutes=5)
-    scheduler.start()
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    await database.disconnect()
-    scheduler.shutdown()
-
-# API endpoints
-@app.get("/health")
-async def health():
-    return {"status": "healthy"}
-
-
-def generate_playlist_url():
-    import string
-    import random
-    chars = string.ascii_letters + string.digits
-    while True:
-        url = ''.join(random.choices(chars, k=5))  # 5 character random string
-        return url
-
-# Add new function to update playlists
 async def update_user_playlists():
+    """Updates user playlists every hour, only storing public playlists"""
     try:
-        users = await database.fetch_all("SELECT spotify_id FROM users")
+        users = await db.users.find({
+            "$or": [
+                {"playlists_update": {"$exists": False}},
+                {"playlists_update": {"$lte": datetime.utcnow() - timedelta(hours=1)}}
+            ]
+        }).to_list(length=None)
         
         async with httpx.AsyncClient() as client:
             for user in users:
@@ -396,80 +304,90 @@ async def update_user_playlists():
                         token
                     )
                     
-                    async with database.transaction():
-                        # Clear existing playlists
-                        await database.execute(
-                            "DELETE FROM playlists WHERE user_id = :user_id",
-                            {"user_id": user['spotify_id']}
-                        )
-                        
-                        # Insert new playlists
-                        for playlist in playlists_data["items"]:
-                            await database.execute(
-                                """
-                                INSERT INTO playlists
-                                (user_id, playlist_id, playlist_name, playlist_url, cover_image, 
-                                spotify_url, total_tracks)
-                                VALUES (:user_id, :playlist_id, :playlist_name, :playlist_url, 
-                                :cover_image, :spotify_url, :total_tracks)
-                                """,
-                                {
-                                    "user_id": user['spotify_id'],
-                                    "playlist_id": playlist["id"],
-                                    "playlist_name": playlist["name"],
-                                    "playlist_url": generate_playlist_url(),
-                                    "cover_image": playlist["images"][0]["url"] if playlist["images"] else None,
-                                    "spotify_url": playlist["external_urls"]["spotify"],
-                                    "total_tracks": playlist["tracks"]["total"]
-                                }
-                            )
+                    # Filter for public playlists only and update
+                    await db.playlists.delete_many({"user_id": user['spotify_id']})
+                    public_playlists = [
+                        {
+                            "user_id": user['spotify_id'],
+                            "playlist_id": playlist["id"],
+                            "playlist_name": playlist["name"],
+                            "spotify_url": playlist["external_urls"]["spotify"],
+                            "cover_image": playlist["images"][0]["url"] if playlist["images"] else None,
+                            "total_tracks": playlist["tracks"]["total"],
+                            "updated_at": datetime.utcnow()
+                        }
+                        for playlist in playlists_data["items"]
+                        if not playlist["private"]  # Only include public playlists
+                    ]
+                    
+                    if public_playlists:
+                        await db.playlists.insert_many(public_playlists)
+                    
+                    await db.users.update_one(
+                        {"spotify_id": user['spotify_id']},
+                        {"$set": {"playlists_update": datetime.utcnow()}}
+                    )
+                    
                 except Exception as e:
                     logger.error(f"Error updating playlists for user {user['spotify_id']}: {str(e)}")
                     continue
     except Exception as e:
         logger.error(f"Error in update_user_playlists: {str(e)}")
 
-# Add new endpoints
+# FastAPI startup and shutdown events
+@app.on_event("startup")
+async def startup_event():
+    await init_db()
+    scheduler.add_job(update_recent_tracks, 'interval', minutes=15)
+    scheduler.add_job(update_top_items, 'interval', hours=24)
+    scheduler.add_job(update_user_playlists, 'interval', hours=1)
+    scheduler.start()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    scheduler.shutdown()
+    client.close()
+
+# API endpoints
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
+
 @app.get("/users/{user_id}/playlists")
 async def get_user_playlists(user_id: str):
-    query = """
-        SELECT playlist_name, cover_image, playlist_url, total_tracks
-        FROM playlists
-        WHERE user_id = :user_id
-        ORDER BY playlist_name
-    """
-    playlists = await database.fetch_all(
-        query=query,
-        values={"user_id": user_id}
-    )
+    playlists = await db.playlists.find(
+        {"user_id": user_id},
+        {"_id": 0, "playlist_name": 1, "cover_image": 1, "spotify_url": 1, "total_tracks": 1}
+    ).sort("playlist_name", 1).to_list(length=None)
     
     return [
         {
             "name": playlist['playlist_name'],
             "cover_image": playlist['cover_image'],
-            "url": playlist['playlist_url'],
+            "url": playlist['spotify_url'],  # Using Spotify's URL instead of custom URL
             "total_tracks": playlist['total_tracks']
         }
         for playlist in playlists
     ]
 
-@app.get("/playlists/{playlist_url}")
-async def get_playlist_details(playlist_url: str):
-    # First get playlist info from our database
-    query = """
-        SELECT p.*, u.custom_url, u.display_name
-        FROM playlists p
-        JOIN users u ON p.user_id = u.spotify_id
-        WHERE p.playlist_url = :playlist_url
-    """
-    playlist = await database.fetch_one(
-        query=query,
-        values={"playlist_url": playlist_url}
+@app.get("/playlists/{spotify_url}")
+async def get_playlist_details(spotify_url: str):
+    # Get playlist info from database
+    playlist = await db.playlists.find_one(
+        {"spotify_url": spotify_url},
+        {"_id": 0}
     )
     
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
-        
+    
+    # Get user info
+    user = await db.users.find_one(
+        {"spotify_id": playlist['user_id']},
+        {"_id": 0, "custom_url": 1, "display_name": 1}
+    )
+    
+    # Get playlist tracks from Spotify API
     # Get playlist tracks from Spotify API
     token = await get_valid_token(playlist['user_id'])
     async with httpx.AsyncClient() as client:
@@ -488,7 +406,7 @@ async def get_playlist_details(playlist_url: str):
             "duration": track["track"]["duration_ms"]
         }
         for track in tracks_data["items"]
-        if track["track"] is not None
+        if track["track"] is not None  # Filter out any null tracks
     ]
     
     return {
@@ -497,21 +415,19 @@ async def get_playlist_details(playlist_url: str):
         "total_tracks": playlist['total_tracks'],
         "spotify_url": playlist['spotify_url'],
         "owner": {
-            "display_name": playlist['display_name'],
-            "profile_url": playlist['custom_url']
+            "display_name": user['display_name'],
+            "profile_url": user['custom_url']
         },
         "tracks": tracks
     }
-
 
 @app.get("/check-url/{custom_url}")
 async def check_url_availability(custom_url: str):
     if not is_valid_url(custom_url):
         return {"available": False, "reason": "Invalid URL format"}
     
-    query = "SELECT COUNT(*) as count FROM users WHERE custom_url = :custom_url"
-    result = await database.fetch_one(query=query, values={"custom_url": custom_url.lower()})
-    return {"available": result['count'] == 0}
+    count = await db.users.count_documents({"custom_url": custom_url.lower()})
+    return {"available": count == 0}
 
 @app.post("/auth/callback")
 async def spotify_callback(request: Request):
@@ -555,21 +471,20 @@ async def spotify_callback(request: Request):
             avatar_url = images[0].get("url") if images else None
             
             # Store user data
-            query = """
-                INSERT OR REPLACE INTO users 
-                (spotify_id, custom_url, access_token, refresh_token, token_expiry, display_name, avatar_url)
-                VALUES (:spotify_id, :custom_url, :access_token, :refresh_token, datetime('now', '+1 hour'), :display_name, :avatar_url)
-            """
-            await database.execute(
-                query=query,
-                values={
-                    "spotify_id": user_data["id"],
-                    "custom_url": custom_url.lower(),
-                    "access_token": token_data["access_token"],
-                    "refresh_token": token_data.get("refresh_token"),
-                    "display_name": user_data.get("display_name", user_data["id"]),
-                    "avatar_url": avatar_url
-                }
+            await db.users.update_one(
+                {"spotify_id": user_data["id"]},
+                {
+                    "$set": {
+                        "spotify_id": user_data["id"],
+                        "custom_url": custom_url.lower(),
+                        "access_token": token_data["access_token"],
+                        "refresh_token": token_data.get("refresh_token"),
+                        "token_expiry": datetime.utcnow() + timedelta(hours=1),
+                        "display_name": user_data.get("display_name", user_data["id"]),
+                        "avatar_url": avatar_url
+                    }
+                },
+                upsert=True
             )
             
             return {
@@ -583,14 +498,14 @@ async def spotify_callback(request: Request):
 
 @app.get("/users/{user_id}")
 async def get_user(user_id: str):
-    query = """
-        SELECT spotify_id, custom_url, display_name, avatar_url 
-        FROM users 
-        WHERE custom_url = :user_id OR spotify_id = :user_id
-    """
-    user = await database.fetch_one(
-        query=query,
-        values={"user_id": user_id.lower()}
+    user = await db.users.find_one(
+        {
+            "$or": [
+                {"custom_url": user_id.lower()},
+                {"spotify_id": user_id}
+            ]
+        },
+        {"_id": 0, "spotify_id": 1, "custom_url": 1, "display_name": 1, "avatar_url": 1}
     )
     
     if not user:
@@ -605,17 +520,10 @@ async def get_user(user_id: str):
 
 @app.get("/users/{user_id}/recent-tracks")
 async def get_recent_tracks(user_id: str):
-    query = """
-        SELECT track_name, artist_name, played_at, album_art
-        FROM tracks
-        WHERE user_id = :user_id
-        ORDER BY played_at DESC
-        LIMIT 50
-    """
-    tracks = await database.fetch_all(
-        query=query,
-        values={"user_id": user_id}
-    )
+    tracks = await db.tracks.find(
+        {"user_id": user_id},
+        {"_id": 0, "track_name": 1, "artist_name": 1, "played_at": 1, "album_art": 1}
+    ).sort("played_at", -1).limit(50).to_list(length=None)
     
     return [
         {
@@ -629,8 +537,10 @@ async def get_recent_tracks(user_id: str):
 
 @app.get("/users/{user_id}/currently-playing")
 async def get_currently_playing(user_id: str):
-    query = "SELECT access_token FROM users WHERE spotify_id = :user_id"
-    user = await database.fetch_one(query=query, values={"user_id": user_id})
+    user = await db.users.find_one(
+        {"spotify_id": user_id},
+        {"_id": 0, "access_token": 1}
+    )
     
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -661,17 +571,15 @@ async def search_users(query: str = None):
         return []
         
     try:
-        search_query = """
-            SELECT spotify_id, display_name, avatar_url
-            FROM users 
-            WHERE LOWER(spotify_id) LIKE LOWER(:search_term) 
-            OR LOWER(display_name) LIKE LOWER(:search_term)
-            LIMIT 10
-        """
-        users = await database.fetch_all(
-            query=search_query,
-            values={"search_term": f"%{query}%"}
-        )
+        users = await db.users.find(
+            {
+                "$or": [
+                    {"spotify_id": {"$regex": query, "$options": "i"}},
+                    {"display_name": {"$regex": query, "$options": "i"}}
+                ]
+            },
+            {"_id": 0, "spotify_id": 1, "display_name": 1, "avatar_url": 1}
+        ).limit(10).to_list(length=None)
         
         return [
             {
@@ -692,33 +600,30 @@ async def search_users(query: str = None):
 @app.get("/users/{user_id}/top-tracks")
 async def get_top_tracks(user_id: str):
     # First get the spotify_id from either custom_url or spotify_id
-    user_query = """
-        SELECT spotify_id 
-        FROM users 
-        WHERE custom_url = :user_id OR spotify_id = :user_id
-    """
-    user = await database.fetch_one(
-        query=user_query,
-        values={"user_id": user_id.lower()}
+    user = await db.users.find_one(
+        {
+            "$or": [
+                {"custom_url": user_id.lower()},
+                {"spotify_id": user_id}
+            ]
+        },
+        {"_id": 0, "spotify_id": 1}
     )
     
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-        
-    spotify_id = user['spotify_id']
     
-    # Now fetch top tracks using the spotify_id
-    tracks_query = """
-        SELECT track_name, artist_name, album_name, album_art, popularity
-        FROM top_tracks
-        WHERE user_id = :user_id
-        ORDER BY popularity DESC
-        LIMIT 50
-    """
-    tracks = await database.fetch_all(
-        query=tracks_query,
-        values={"user_id": spotify_id}
-    )
+    tracks = await db.top_tracks.find(
+        {"user_id": user['spotify_id']},
+        {
+            "_id": 0,
+            "track_name": 1,
+            "artist_name": 1,
+            "album_name": 1,
+            "album_art": 1,
+            "popularity": 1
+        }
+    ).sort("popularity", -1).limit(50).to_list(length=None)
     
     return [
         {
@@ -733,17 +638,10 @@ async def get_top_tracks(user_id: str):
 
 @app.get("/users/{user_id}/top-artists")
 async def get_top_artists(user_id: str):
-    query = """
-        SELECT artist_name, artist_image, popularity
-        FROM top_artists
-        WHERE user_id = :user_id
-        ORDER BY popularity DESC
-        LIMIT 50
-    """
-    artists = await database.fetch_all(
-        query=query,
-        values={"user_id": user_id}
-    )
+    artists = await db.top_artists.find(
+        {"user_id": user_id},
+        {"_id": 0, "artist_name": 1, "artist_image": 1, "popularity": 1}
+    ).sort("popularity", -1).limit(50).to_list(length=None)
     
     return [
         {
