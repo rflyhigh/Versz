@@ -393,6 +393,20 @@ class VerszApp {
         const loginPending = localStorage.getItem('login_pending');
 
         if (!userId || loginPending) {
+            // Check if we're trying to view a specific profile
+            const path = window.location.pathname;
+            if (path !== '/') {
+                // Try to load the profile even if not logged in
+                const viewingUserId = this.getViewingUserId(path);
+                try {
+                    await this.loadProfile(viewingUserId);
+                } catch (error) {
+                    // If profile doesn't exist, show login section with error
+                    this.showLoginSection();
+                    this.showError('User not found');
+                }
+                return;
+            }
             this.showLoginSection();
             return;
         }
@@ -416,21 +430,7 @@ class VerszApp {
         }
     }
 
-    async handleRouting() {
-        const path = window.location.pathname;
-        const viewingUserId = this.getViewingUserId(path);
-        
-        if (!viewingUserId) {
-            this.showLoginSection();
-            return;
-        }
-
-        try {
-            await this.loadProfile(viewingUserId);
-        } catch (error) {
-            this.handleRoutingError(error);
-        }
-    }
+   
 
     getViewingUserId(path) {
         return path === '/' 
@@ -447,11 +447,68 @@ class VerszApp {
         await this.showProfileSection(userData, isOwnProfile);
     }
 
+    async handleRouting() {
+        const path = window.location.pathname;
+        const viewingUserId = this.getViewingUserId(path);
+        
+        if (!viewingUserId) {
+            this.showLoginSection();
+            return;
+        }
+
+        try {
+            await this.loadProfile(viewingUserId);
+        } catch (error) {
+            // Clear any existing errors before showing new ones
+            const errorContainer = document.getElementById('error-container');
+            if (errorContainer) {
+                errorContainer.innerHTML = '';
+            }
+            
+            this.handleRoutingError(error);
+            
+            // If not logged in, show login section
+            if (!localStorage.getItem('spotify_user_id')) {
+                this.showLoginSection();
+            }
+        }
+    }
+
     handleRoutingError(error) {
         console.error('Failed to load profile:', error);
-        this.showError('Failed to load profile. Please try again later.');
-        if (!localStorage.getItem('spotify_user_id')) {
+        this.showError('User not found');
+        // Only redirect to home if we're logged in and on our own non-existent profile
+        const userId = localStorage.getItem('spotify_user_id');
+        const currentPath = window.location.pathname.substring(1); // Remove leading slash
+        if (userId && currentPath === userId) {
             window.location.href = '/';
+        }
+    }
+
+    showError(message) {
+        // First clear any existing error messages to prevent duplicates
+        const container = document.getElementById('error-container');
+        if (container) {
+            // Remove any existing error messages that have the same text
+            const existingErrors = container.getElementsByClassName('error-message');
+            Array.from(existingErrors).forEach(error => {
+                if (error.textContent === message) {
+                    error.remove();
+                }
+            });
+        }
+
+        const errorContainer = document.createElement('div');
+        errorContainer.className = 'error-message animate__animated animate__fadeIn';
+        errorContainer.textContent = message;
+        
+        if (container) {
+            container.appendChild(errorContainer);
+            
+            setTimeout(() => {
+                errorContainer.classList.add('animate__fadeOut');
+                setTimeout(() => errorContainer.remove(), 300);
+            }, 5000);
         }
     }
 
