@@ -6,8 +6,8 @@ const config = {
         'user-read-currently-playing',
         'user-read-recently-played',
         'user-read-playback-state',
-        'user-top-read',                // This was 'user-read-top-read' before - that was wrong
+        'user-top-read',
         'playlist-read-collaborative',
         'playlist-read-public'
-    ].join(' ')
+    ].join('%20')
 };
