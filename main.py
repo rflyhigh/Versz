@@ -683,34 +683,83 @@ async def get_recent_tracks(user_id: str):
 
 @app.get("/users/{user_id}/currently-playing")
 async def get_currently_playing(user_id: str):
-    user = await db.users.find_one(
-        {"spotify_id": user_id},
-        {"_id": 0, "access_token": 1}
-    )
-    
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            "https://api.spotify.com/v1/me/player/currently-playing",
-            headers={"Authorization": f"Bearer {user['access_token']}"},
+    try:
+        # First, get the user and ensure they exist
+        user = await db.users.find_one(
+            {"spotify_id": user_id},
+            {"_id": 0, "access_token": 1}
         )
         
-        if response.status_code == 204:
-            return {"is_playing": False}
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
         
-        if response.status_code != 200:
-            raise HTTPException(status_code=400, detail="Failed to get current track")
+        # Get a valid token
+        token = await get_valid_token(user_id)
         
-        data = response.json()
-        return {
-            "is_playing": True,
-            "track_name": data["item"]["name"],
-            "artist_name": data["item"]["artists"][0]["name"],
-            "album_art": data["item"]["album"]["images"][0]["url"] if data["item"]["album"]["images"] else None
-        }
-
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://api.spotify.com/v1/me/player/currently-playing",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            
+            # Handle different response scenarios
+            if response.status_code == 204:
+                return {"is_playing": False, "message": "No track currently playing"}
+                
+            if response.status_code == 401:
+                # Token might be invalid despite our refresh attempt
+                raise HTTPException(status_code=401, detail="Authentication failed")
+                
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail="Failed to get current track"
+                )
+            
+            try:
+                data = response.json()
+                
+                # Check if we have valid data
+                if not data or "item" not in data:
+                    return {"is_playing": False, "message": "No track information available"}
+                
+                # Extract track information with safe fallbacks
+                track_item = data.get("item", {})
+                if not track_item:
+                    return {"is_playing": False, "message": "No track details available"}
+                
+                artists = track_item.get("artists", [])
+                artist_name = artists[0].get("name", "Unknown Artist") if artists else "Unknown Artist"
+                
+                album = track_item.get("album", {})
+                images = album.get("images", [])
+                album_art = images[0].get("url") if images else None
+                
+                return {
+                    "is_playing": data.get("is_playing", False),
+                    "track_name": track_item.get("name", "Unknown Track"),
+                    "artist_name": artist_name,
+                    "album_art": album_art,
+                    "progress_ms": data.get("progress_ms"),
+                    "duration_ms": track_item.get("duration_ms")
+                }
+                
+            except (KeyError, IndexError, TypeError) as e:
+                logger.error(f"Error parsing currently playing response: {str(e)}")
+                return {
+                    "is_playing": False,
+                    "message": "Error parsing track information"
+                }
+                
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_currently_playing: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="An error occurred while fetching currently playing track"
+        )
+        
 @app.get("/users/search")
 async def search_users(query: str = None):
     if not query:
