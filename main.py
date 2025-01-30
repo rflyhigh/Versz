@@ -283,7 +283,7 @@ async def update_top_items():
         logger.error(f"Error in update_top_items: {str(e)}")
 
 async def update_user_playlists():
-    """Updates user playlists every hour, only storing public playlists"""
+    """Updates user playlists every hour, only storing collaborative playlists"""
     try:
         users = await db.users.find({
             "$or": [
@@ -304,24 +304,25 @@ async def update_user_playlists():
                         token
                     )
                     
-                    # Filter for public playlists only and update
+                    # Filter for collaborative playlists only and update
                     await db.playlists.delete_many({"user_id": user['spotify_id']})
-                    public_playlists = [
+                    collaborative_playlists = [
                         {
                             "user_id": user['spotify_id'],
                             "playlist_id": playlist["id"],
                             "playlist_name": playlist["name"],
                             "spotify_url": playlist["external_urls"]["spotify"],
-                            "cover_image": playlist["images"][0]["url"] if playlist["images"] else None,
+                            "cover_image": playlist["images"][0]["url"] if playlist.get("images") else None,
                             "total_tracks": playlist["tracks"]["total"],
-                            "updated_at": datetime.utcnow()
+                            "updated_at": datetime.utcnow(),
+                            "is_collaborative": playlist.get("collaborative", False)
                         }
                         for playlist in playlists_data["items"]
-                        if not playlist["private"]  # Only include public playlists
+                        if playlist.get("collaborative", False)  # Only include collaborative playlists
                     ]
                     
-                    if public_playlists:
-                        await db.playlists.insert_many(public_playlists)
+                    if collaborative_playlists:
+                        await db.playlists.insert_many(collaborative_playlists)
                     
                     await db.users.update_one(
                         {"spotify_id": user['spotify_id']},
@@ -589,35 +590,50 @@ async def spotify_callback(request: Request):
 
             async def update_user_playlists_for_user(user):
                 async with httpx.AsyncClient() as client:
-                    token = await get_valid_token(user['spotify_id'])
-                    
-                    playlists_data = await get_spotify_data(
-                        client,
-                        "me/playlists?limit=50",
-                        token
-                    )
-                    
-                    # Clear existing playlists
-                    await db.playlists.delete_many({"user_id": user['spotify_id']})
-                    
-                    public_playlists = [{
-                        "user_id": user['spotify_id'],
-                        "playlist_id": playlist["id"],
-                        "playlist_name": playlist["name"],
-                        "spotify_url": playlist["external_urls"]["spotify"],
-                        "cover_image": playlist["images"][0]["url"] if playlist["images"] else None,
-                        "total_tracks": playlist["tracks"]["total"],
-                        "updated_at": datetime.utcnow()
-                    } for playlist in playlists_data["items"] if not playlist["private"]]
-                    
-                    if public_playlists:
-                        await db.playlists.insert_many(public_playlists)
-
-                    # Update the last update timestamp
-                    await db.users.update_one(
-                        {"spotify_id": user['spotify_id']},
-                        {"$set": {"playlists_update": datetime.utcnow()}}
-                    )
+                    try:
+                        token = await get_valid_token(user['spotify_id'])
+                        
+                        playlists_data = await get_spotify_data(
+                            client,
+                            "me/playlists?limit=50",
+                            token
+                        )
+                        
+                        # Clear existing playlists
+                        await db.playlists.delete_many({"user_id": user['spotify_id']})
+                        
+                        # Filter for collaborative playlists and properly handle missing fields
+                        public_playlists = []
+                        for playlist in playlists_data["items"]:
+                            # Check if the playlist is collaborative
+                            is_collaborative = playlist.get("collaborative", False)
+                            
+                            # Only include collaborative playlists
+                            if is_collaborative:
+                                playlist_entry = {
+                                    "user_id": user['spotify_id'],
+                                    "playlist_id": playlist["id"],
+                                    "playlist_name": playlist["name"],
+                                    "spotify_url": playlist["external_urls"]["spotify"],
+                                    "cover_image": playlist["images"][0]["url"] if playlist.get("images") else None,
+                                    "total_tracks": playlist["tracks"]["total"],
+                                    "updated_at": datetime.utcnow(),
+                                    "is_collaborative": is_collaborative
+                                }
+                                public_playlists.append(playlist_entry)
+                        
+                        if public_playlists:
+                            await db.playlists.insert_many(public_playlists)
+            
+                        # Update the last update timestamp
+                        await db.users.update_one(
+                            {"spotify_id": user['spotify_id']},
+                            {"$set": {"playlists_update": datetime.utcnow()}}
+                        )
+                        
+                    except Exception as e:
+                        logger.error(f"Error updating playlists for user {user['spotify_id']}: {str(e)}")
+                        raise
 
             # Start the initial data collection in the background
             asyncio.create_task(collect_initial_data())
