@@ -281,9 +281,8 @@ async def update_top_items():
                     continue
     except Exception as e:
         logger.error(f"Error in update_top_items: {str(e)}")
-
 async def update_user_playlists():
-    """Updates user playlists every hour"""
+    """Updates user playlists every hour, storing only public playlists"""
     try:
         users = await db.users.find({
             "$or": [
@@ -297,14 +296,12 @@ async def update_user_playlists():
                 try:
                     token = await get_valid_token(user['spotify_id'])
                     
-                    # Get user's playlists
                     playlists_data = await get_spotify_data(
                         client,
                         "me/playlists?limit=50",
                         token
                     )
                     
-                    # Update all playlists, not just collaborative ones
                     await db.playlists.delete_many({"user_id": user['spotify_id']})
                     playlists = [
                         {
@@ -315,10 +312,10 @@ async def update_user_playlists():
                             "cover_image": playlist["images"][0]["url"] if playlist.get("images") else None,
                             "total_tracks": playlist["tracks"]["total"],
                             "updated_at": datetime.utcnow(),
-                            "is_collaborative": playlist.get("collaborative", False),
                             "is_public": playlist.get("public", True)
                         }
                         for playlist in playlists_data["items"]
+                        if playlist.get("public", True)  # Only include public playlists
                     ]
                     
                     if playlists:
@@ -334,6 +331,7 @@ async def update_user_playlists():
                     continue
     except Exception as e:
         logger.error(f"Error in update_user_playlists: {str(e)}")
+
 # FastAPI startup and shutdown events
 @app.on_event("startup")
 async def startup_event():
