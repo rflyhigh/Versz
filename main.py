@@ -205,6 +205,7 @@ async def update_recent_tracks():
                     continue
     except Exception as e:
         logger.error(f"Error in update_recent_tracks: {str(e)}")
+
 async def update_top_items():
     """Updates top tracks and artists for all users daily"""
     try:
@@ -238,7 +239,6 @@ async def update_top_items():
                                 "artist_name": track["artists"][0]["name"],
                                 "album_name": track["album"]["name"],
                                 "album_art": track["album"]["images"][0]["url"] if track["album"]["images"] else None,
-                                "popularity": track["popularity"],
                                 "updated_at": datetime.utcnow()
                             }
                             for track in tracks_data["items"]
@@ -260,7 +260,6 @@ async def update_top_items():
                                 "artist_id": artist["id"],
                                 "artist_name": artist["name"],
                                 "artist_image": artist["images"][0]["url"] if artist["images"] else None,
-                                "popularity": artist["popularity"],
                                 "updated_at": datetime.utcnow()
                             }
                             for artist in artists_data["items"]
@@ -276,6 +275,8 @@ async def update_top_items():
                     continue
     except Exception as e:
         logger.error(f"Error in update_top_items: {str(e)}")
+
+
 async def update_user_playlists():
     """Updates user playlists every hour, storing only public playlists"""
     try:
@@ -339,7 +340,8 @@ async def startup_event():
 
 async def cleanup():
     scheduler.shutdown(wait=True)
-    await client.close()
+    if client:
+        await client.close()
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -795,10 +797,8 @@ async def search_users(query: str = None):
             status_code=500,
             detail="An error occurred while searching for users"
         )
-
 @app.get("/users/{user_id}/top-tracks")
 async def get_top_tracks(user_id: str):
-    # First get the spotify_id from either custom_url or spotify_id
     user = await db.users.find_one(
         {
             "$or": [
@@ -811,7 +811,7 @@ async def get_top_tracks(user_id: str):
     
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+        
     tracks = await db.top_tracks.find(
         {"user_id": user['spotify_id']},
         {
@@ -819,37 +819,36 @@ async def get_top_tracks(user_id: str):
             "track_name": 1,
             "artist_name": 1,
             "album_name": 1,
-            "album_art": 1,
-            "popularity": 1
+            "album_art": 1
         }
-    ).sort("popularity", -1).limit(50).to_list(length=None)
+    ).limit(50).to_list(length=None)
     
     return [
         {
             "track_name": track['track_name'],
             "artist_name": track['artist_name'],
             "album_name": track['album_name'],
-            "album_art": track['album_art'],
-            "popularity": track['popularity']
+            "album_art": track['album_art']
         }
         for track in tracks
     ]
+
 
 @app.get("/users/{user_id}/top-artists")
 async def get_top_artists(user_id: str):
     artists = await db.top_artists.find(
         {"user_id": user_id},
-        {"_id": 0, "artist_name": 1, "artist_image": 1, "popularity": 1}
-    ).sort("popularity", -1).limit(50).to_list(length=None)
+        {"_id": 0, "artist_name": 1, "artist_image": 1}
+    ).limit(50).to_list(length=None)
     
     return [
         {
             "artist_name": artist['artist_name'],
-            "artist_image": artist['artist_image'],
-            "popularity": artist['popularity']
+            "artist_image": artist['artist_image']
         }
         for artist in artists
     ]
+
 
 if __name__ == "__main__":
     import uvicorn
