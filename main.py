@@ -500,7 +500,6 @@ async def spotify_callback(request: Request):
                 except Exception as e:
                     logger.error(f"Error collecting initial data for user {user_data['id']}: {str(e)}")
 
-            # Create new helper functions for single-user updates
             async def update_recent_tracks_for_user(user):
                 async with httpx.AsyncClient() as client:
                     token = await get_valid_token(user['spotify_id'])
@@ -510,16 +509,16 @@ async def spotify_callback(request: Request):
                         token
                     )
                     
-                    operations = []
+                    # Insert tracks individually instead of using bulk write
                     for track in tracks_data["items"]:
-                        operations.append({
-                            "replaceOne": {
-                                "filter": {
-                                    "user_id": user['spotify_id'],
-                                    "track_id": track["track"]["id"],
-                                    "played_at": track["played_at"]
-                                },
-                                "replacement": {
+                        await db.tracks.update_one(
+                            {
+                                "user_id": user['spotify_id'],
+                                "track_id": track["track"]["id"],
+                                "played_at": track["played_at"]
+                            },
+                            {
+                                "$set": {
                                     "user_id": user['spotify_id'],
                                     "track_id": track["track"]["id"],
                                     "track_name": track["track"]["name"],
@@ -527,13 +526,16 @@ async def spotify_callback(request: Request):
                                     "album_name": track["track"]["album"]["name"],
                                     "album_art": track["track"]["album"]["images"][0]["url"] if track["track"]["album"]["images"] else None,
                                     "played_at": track["played_at"]
-                                },
-                                "upsert": True
-                            }
-                        })
-                    
-                    if operations:
-                        await db.tracks.bulk_write(operations)
+                                }
+                            },
+                            upsert=True
+                        )
+
+                    # Update the last update timestamp
+                    await db.users.update_one(
+                        {"spotify_id": user['spotify_id']},
+                        {"$set": {"last_update": datetime.utcnow()}}
+                    )
 
             async def update_top_items_for_user(user):
                 async with httpx.AsyncClient() as client:
@@ -546,21 +548,19 @@ async def spotify_callback(request: Request):
                         token
                     )
                     
+                    # Clear existing top tracks
                     await db.top_tracks.delete_many({"user_id": user['spotify_id']})
                     if tracks_data["items"]:
-                        await db.top_tracks.insert_many([
-                            {
-                                "user_id": user['spotify_id'],
-                                "track_id": track["id"],
-                                "track_name": track["name"],
-                                "artist_name": track["artists"][0]["name"],
-                                "album_name": track["album"]["name"],
-                                "album_art": track["album"]["images"][0]["url"] if track["album"]["images"] else None,
-                                "popularity": track["popularity"],
-                                "updated_at": datetime.utcnow()
-                            }
-                            for track in tracks_data["items"]
-                        ])
+                        await db.top_tracks.insert_many([{
+                            "user_id": user['spotify_id'],
+                            "track_id": track["id"],
+                            "track_name": track["name"],
+                            "artist_name": track["artists"][0]["name"],
+                            "album_name": track["album"]["name"],
+                            "album_art": track["album"]["images"][0]["url"] if track["album"]["images"] else None,
+                            "popularity": track["popularity"],
+                            "updated_at": datetime.utcnow()
+                        } for track in tracks_data["items"]])
                     
                     # Get top artists
                     artists_data = await get_spotify_data(
@@ -569,19 +569,23 @@ async def spotify_callback(request: Request):
                         token
                     )
                     
+                    # Clear existing top artists
                     await db.top_artists.delete_many({"user_id": user['spotify_id']})
                     if artists_data["items"]:
-                        await db.top_artists.insert_many([
-                            {
-                                "user_id": user['spotify_id'],
-                                "artist_id": artist["id"],
-                                "artist_name": artist["name"],
-                                "artist_image": artist["images"][0]["url"] if artist["images"] else None,
-                                "popularity": artist["popularity"],
-                                "updated_at": datetime.utcnow()
-                            }
-                            for artist in artists_data["items"]
-                        ])
+                        await db.top_artists.insert_many([{
+                            "user_id": user['spotify_id'],
+                            "artist_id": artist["id"],
+                            "artist_name": artist["name"],
+                            "artist_image": artist["images"][0]["url"] if artist["images"] else None,
+                            "popularity": artist["popularity"],
+                            "updated_at": datetime.utcnow()
+                        } for artist in artists_data["items"]])
+
+                    # Update the last update timestamp
+                    await db.users.update_one(
+                        {"spotify_id": user['spotify_id']},
+                        {"$set": {"top_items_update": datetime.utcnow()}}
+                    )
 
             async def update_user_playlists_for_user(user):
                 async with httpx.AsyncClient() as client:
@@ -593,23 +597,27 @@ async def spotify_callback(request: Request):
                         token
                     )
                     
+                    # Clear existing playlists
                     await db.playlists.delete_many({"user_id": user['spotify_id']})
-                    public_playlists = [
-                        {
-                            "user_id": user['spotify_id'],
-                            "playlist_id": playlist["id"],
-                            "playlist_name": playlist["name"],
-                            "spotify_url": playlist["external_urls"]["spotify"],
-                            "cover_image": playlist["images"][0]["url"] if playlist["images"] else None,
-                            "total_tracks": playlist["tracks"]["total"],
-                            "updated_at": datetime.utcnow()
-                        }
-                        for playlist in playlists_data["items"]
-                        if not playlist["private"]
-                    ]
+                    
+                    public_playlists = [{
+                        "user_id": user['spotify_id'],
+                        "playlist_id": playlist["id"],
+                        "playlist_name": playlist["name"],
+                        "spotify_url": playlist["external_urls"]["spotify"],
+                        "cover_image": playlist["images"][0]["url"] if playlist["images"] else None,
+                        "total_tracks": playlist["tracks"]["total"],
+                        "updated_at": datetime.utcnow()
+                    } for playlist in playlists_data["items"] if not playlist["private"]]
                     
                     if public_playlists:
                         await db.playlists.insert_many(public_playlists)
+
+                    # Update the last update timestamp
+                    await db.users.update_one(
+                        {"spotify_id": user['spotify_id']},
+                        {"$set": {"playlists_update": datetime.utcnow()}}
+                    )
 
             # Start the initial data collection in the background
             asyncio.create_task(collect_initial_data())
