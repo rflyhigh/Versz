@@ -930,3 +930,96 @@ input:focus:not(:focus-visible) {
 .text-gray-500 {
     color: #6b7280;
 }
+/* Add to styles.css */
+
+/* Playlist Grid in Profile */
+.playlists-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 1rem;
+    padding: 1rem;
+}
+
+.playlist-item {
+    display: flex;
+    flex-direction: column;
+    text-decoration: none;
+    color: white;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    overflow: hidden;
+    transition: transform 0.2s, background-color 0.2s;
+}
+
+.playlist-item:hover {
+    transform: translateY(-4px);
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.playlist-artwork {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+}
+
+.playlist-details {
+    padding: 0.75rem;
+}
+
+.playlist-name {
+    font-weight: 500;
+    margin-bottom: 0.25rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.playlist-tracks {
+    font-size: 0.875rem;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+/* Expanded Playlist View */
+.top-bar {
+    position: sticky;
+    top: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(10px);
+    padding: 1rem;
+    z-index: 100;
+}
+
+.back-button {
+    color: white;
+    text-decoration: none;
+    font-size: 1.5rem;
+    display: inline-flex;
+    align-items: center;
+    padding: 0.5rem;
+    border-radius: 50%;
+    transition: background-color 0.2s;
+}
+
+.back-button:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .playlists-grid {
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+        gap: 0.75rem;
+    }
+
+    .playlist-details {
+        padding: 0.5rem;
+    }
+
+    .playlist-name {
+        font-size: 0.875rem;
+    }
+
+    .playlist-tracks {
+        font-size: 0.75rem;
+    }
+}
