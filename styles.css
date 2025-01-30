@@ -310,12 +310,11 @@ main {
 .track-item, .artist-item {
     display: flex;
     align-items: center;
-    padding: 0.75rem 1rem;
+    padding: 0.75rem;
     border-radius: var(--radius-md);
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.5rem;
     background: var(--surface-light);
     transition: var(--transition);
-    gap: 1rem;
 }
 
 .track-item:hover, .artist-item:hover {
@@ -987,7 +986,15 @@ input:focus:not(:focus-visible) {
     margin: 1rem 0;
 }
 
-
+.track-item {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.5rem;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
 
 .track-item:hover {
     background-color: rgba(255, 255, 255, 0.1);
@@ -1100,6 +1107,11 @@ input:focus:not(:focus-visible) {
 
     .playlist-title {
         font-size: 1.5rem;
+    }
+
+    .track-item {
+        gap: 0.75rem;
+        padding: 0.5rem;
     }
 
     .track-art-container {
