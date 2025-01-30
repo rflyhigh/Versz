@@ -1023,3 +1023,160 @@ input:focus:not(:focus-visible) {
         font-size: 0.75rem;
     }
 }
+
+/* Track List Styling */
+.track-item {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem;
+    gap: 1rem;
+    background: rgba(255, 255, 255, 0.05);
+    margin-bottom: 0.5rem;
+    border-radius: 8px;
+    transition: background-color 0.2s;
+}
+
+.track-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.track-artwork {
+    width: 48px;
+    height: 48px;
+    border-radius: 4px;
+    object-fit: cover;
+}
+
+.track-details {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.track-name {
+    font-weight: 500;
+    color: white;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.track-artist {
+    font-size: 0.875rem;
+    color: rgba(255, 255, 255, 0.7);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.track-time {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.track-rank {
+    min-width: 2rem;
+    text-align: center;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+/* Current Track Styling */
+#current-track-info {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+#current-track-info.playing {
+    background: linear-gradient(to right, rgba(29, 185, 84, 0.1), rgba(255, 255, 255, 0.05));
+}
+
+#current-track-info .track-info {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+#current-track-info .track-artwork {
+    width: 64px;
+    height: 64px;
+}
+
+/* Artist List Styling */
+.artist-item {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem;
+    gap: 1rem;
+    background: rgba(255, 255, 255, 0.05);
+    margin-bottom: 0.5rem;
+    border-radius: 8px;
+    transition: background-color 0.2s;
+}
+
+.artist-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.artist-artwork {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.artist-details {
+    flex: 1;
+    min-width: 0;
+}
+
+.artist-name {
+    font-weight: 500;
+    color: white;
+    margin-bottom: 0.25rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.artist-popularity {
+    font-size: 0.875rem;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.artist-rank {
+    min-width: 2rem;
+    text-align: center;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+/* Responsive Design */
+@media (max-width: 640px) {
+    .track-item, .artist-item {
+        padding: 0.5rem;
+        gap: 0.75rem;
+    }
+
+    .track-artwork {
+        width: 40px;
+        height: 40px;
+    }
+
+    .artist-artwork {
+        width: 48px;
+        height: 48px;
+    }
+
+    .track-name, .artist-name {
+        font-size: 0.875rem;
+    }
+
+    .track-artist {
+        font-size: 0.75rem;
+    }
+}
