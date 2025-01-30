@@ -364,17 +364,17 @@ async def get_user_playlists(user_id: str):
         {
             "name": playlist['playlist_name'],
             "cover_image": playlist['cover_image'],
-            "url": playlist['spotify_url'],  # Using Spotify's URL instead of custom URL
+            "url": playlist['spotify_url'].split('/')[-1][:5],  # Extract only first 5 characters of playlist ID
             "total_tracks": playlist['total_tracks']
         }
         for playlist in playlists
     ]
 
-@app.get("/playlists/{spotify_url}")
-async def get_playlist_details(spotify_url: str):
-    # Get playlist info from database
+@app.get("/playlists/{playlist_id}")
+async def get_playlist_details(playlist_id: str):
+    # Find the playlist using just the first 5 characters of the ID
     playlist = await db.playlists.find_one(
-        {"spotify_url": spotify_url},
+        {"spotify_url": {"$regex": f".*{playlist_id}"}},
         {"_id": 0}
     )
     
@@ -387,8 +387,6 @@ async def get_playlist_details(spotify_url: str):
         {"_id": 0, "custom_url": 1, "display_name": 1}
     )
     
-    # Get playlist tracks from Spotify API
-    # Get playlist tracks from Spotify API
     token = await get_valid_token(playlist['user_id'])
     async with httpx.AsyncClient() as client:
         tracks_data = await get_spotify_data(
@@ -406,7 +404,7 @@ async def get_playlist_details(spotify_url: str):
             "duration": track["track"]["duration_ms"]
         }
         for track in tracks_data["items"]
-        if track["track"] is not None  # Filter out any null tracks
+        if track["track"] is not None
     ]
     
     return {
