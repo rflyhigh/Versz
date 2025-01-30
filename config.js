@@ -8,7 +8,6 @@ const config = {
         'user-read-playback-state',
         'user-top-read',
         'playlist-read-collaborative',
-        'playlist-read-private',
     ].join(' ')
 };
 
