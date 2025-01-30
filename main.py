@@ -584,7 +584,7 @@ async def spotify_callback(request: Request):
                     )
 
             async def update_user_playlists_for_user(user):
-                """Individual user playlist update function"""
+                """Individual user playlist update function for public playlists only"""
                 async with httpx.AsyncClient() as client:
                     try:
                         token = await get_valid_token(user['spotify_id'])
@@ -595,10 +595,8 @@ async def spotify_callback(request: Request):
                             token
                         )
                         
-                        # Clear existing playlists
                         await db.playlists.delete_many({"user_id": user['spotify_id']})
                         
-                        # Include all playlists
                         playlists = [
                             {
                                 "user_id": user['spotify_id'],
@@ -608,16 +606,15 @@ async def spotify_callback(request: Request):
                                 "cover_image": playlist["images"][0]["url"] if playlist.get("images") else None,
                                 "total_tracks": playlist["tracks"]["total"],
                                 "updated_at": datetime.utcnow(),
-                                "is_collaborative": playlist.get("collaborative", False),
                                 "is_public": playlist.get("public", True)
                             }
                             for playlist in playlists_data["items"]
+                            if playlist.get("public", True)  # Only include public playlists
                         ]
                         
                         if playlists:
                             await db.playlists.insert_many(playlists)
                     
-                        # Update the last update timestamp
                         await db.users.update_one(
                             {"spotify_id": user['spotify_id']},
                             {"$set": {"playlists_update": datetime.utcnow()}}
