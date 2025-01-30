@@ -173,17 +173,16 @@ async def update_recent_tracks():
                         token
                     )
                     
-                    # Use bulk operations for better performance
-                    operations = []
+                    # Process tracks one by one instead of bulk operation
                     for track in tracks_data["items"]:
-                        operations.append({
-                            "replaceOne": {
-                                "filter": {
-                                    "user_id": user['spotify_id'],
-                                    "track_id": track["track"]["id"],
-                                    "played_at": track["played_at"]
-                                },
-                                "replacement": {
+                        await db.tracks.update_one(
+                            {
+                                "user_id": user['spotify_id'],
+                                "track_id": track["track"]["id"],
+                                "played_at": track["played_at"]
+                            },
+                            {
+                                "$set": {
                                     "user_id": user['spotify_id'],
                                     "track_id": track["track"]["id"],
                                     "track_name": track["track"]["name"],
@@ -191,13 +190,10 @@ async def update_recent_tracks():
                                     "album_name": track["track"]["album"]["name"],
                                     "album_art": track["track"]["album"]["images"][0]["url"] if track["track"]["album"]["images"] else None,
                                     "played_at": track["played_at"]
-                                },
-                                "upsert": True
-                            }
-                        })
-                    
-                    if operations:
-                        await db.tracks.bulk_write(operations)
+                                }
+                            },
+                            upsert=True
+                        )
                     
                     await db.users.update_one(
                         {"spotify_id": user['spotify_id']},
@@ -209,7 +205,6 @@ async def update_recent_tracks():
                     continue
     except Exception as e:
         logger.error(f"Error in update_recent_tracks: {str(e)}")
-
 async def update_top_items():
     """Updates top tracks and artists for all users daily"""
     try:
@@ -339,17 +334,33 @@ async def startup_event():
     scheduler.add_job(update_recent_tracks, 'interval', minutes=15)
     scheduler.add_job(update_top_items, 'interval', hours=24)
     scheduler.add_job(update_user_playlists, 'interval', hours=1)
+    init_keepalive_scheduler() 
     scheduler.start()
+
+async def cleanup():
+    scheduler.shutdown(wait=True)
+    await client.close()
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    scheduler.shutdown()
-    client.close()
+    await cleanup()
+    
+@app.get("/keepalive")
+async def keepalive():
+    return {"status": "alive"}
 
-# API endpoints
-@app.get("/health")
-async def health():
-    return {"status": "healthy"}
+# Add scheduler for keep-alive
+def init_keepalive_scheduler():
+    async def ping_self():
+        try:
+            port = os.getenv("PORT", "8000")
+            async with httpx.AsyncClient() as client:
+                await client.get(f"http://localhost:{port}/keepalive")
+                logger.info("Keep-alive ping successful")
+        except Exception as e:
+            logger.error(f"Keep-alive ping failed: {str(e)}")
+
+    scheduler.add_job(ping_self, 'interval', minutes=10)
 
 @app.get("/users/{user_id}/playlists")
 async def get_user_playlists(user_id: str):
