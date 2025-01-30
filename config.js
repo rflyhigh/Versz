@@ -2,12 +2,12 @@ const config = {
     backendUrl: 'https://versz.onrender.com',
     clientId: 'e4625fedf8a24040aa6030051efcd883',
     redirectUri: 'https://versz.fun/callback.html',
-    scopes: [
+    scopes: encodeURIComponent([
         'user-read-currently-playing',
         'user-read-recently-played',
         'user-read-playback-state',
         'user-top-read',
         'playlist-read-collaborative',
         'playlist-read-public'
-    ].join('%20')
+    ].join(' '))
 };
