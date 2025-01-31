@@ -351,18 +351,24 @@ async def shutdown_event():
 async def keepalive():
     return {"status": "alive"}
 
-# Add scheduler for keep-alive
 def init_keepalive_scheduler():
     async def ping_self():
         try:
+            external_url = os.getenv("BACKEND_URL")
+            if external_url:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    await client.get(f"{external_url}/keepalive")
+                    logger.info("External keep-alive ping successful")
+            
+            # Fallback to local ping
             port = os.getenv("PORT", "8000")
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 await client.get(f"http://localhost:{port}/keepalive")
-                logger.info("Keep-alive ping successful")
+                logger.info("Local keep-alive ping successful")
         except Exception as e:
             logger.error(f"Keep-alive ping failed: {str(e)}")
 
-    scheduler.add_job(ping_self, 'interval', minutes=10)
+    scheduler.add_job(ping_self, 'interval', minutes=5) 
 
 @app.get("/users/{user_id}/playlists")
 async def get_user_playlists(user_id: str):
