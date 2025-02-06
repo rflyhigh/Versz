@@ -1,7 +1,7 @@
 const config = {
     backendUrl: 'https://versz.onrender.com',
     clientId: 'e4625fedf8a24040aa6030051efcd883',
-    redirectUri: 'https://versz.fun/callback.html',
+    redirectUri: 'https://app.versz.fun/callback.html',
     scopes: [
         'user-read-currently-playing',
         'user-read-recently-played',
