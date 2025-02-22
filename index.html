@@ -3,33 +3,55 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Track your Spotify listening activity and share with friends">
+    <meta name="theme-color" content="#1DB954">
     <title>versz - Track Your Music Journey</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="/favicon.png">
+    
+    <!-- Stylesheets -->
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Preconnect to External Domains -->
+    <link rel="preconnect" href="https://fonts.gstatic.com">
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com">
 </head>
 <body>
-    <nav class="navbar">
+    <!-- Navigation Bar -->
+    <nav class="navbar" role="navigation">
         <div class="nav-content">
-            <a href="/" class="logo">
-                <i class="fas fa-headphones-alt"></i>
-                versz
+            <a href="/" class="logo" aria-label="versz home">
+                <i class="fas fa-headphones-alt" aria-hidden="true"></i>
+                <span>versz</span>
             </a>
+            
             <div class="nav-right">
+                <!-- Search Container -->
                 <div id="search-container">
                     <div class="search-wrapper">
-                        <i class="fas fa-search search-icon"></i>
-                        <input type="text" id="user-search" placeholder="Find friends...">
+                        <i class="fas fa-search search-icon" aria-hidden="true"></i>
+                        <input 
+                            type="text" 
+                            id="user-search" 
+                            placeholder="Find friends..."
+                            aria-label="Search users"
+                            autocomplete="off"
+                        >
                     </div>
-                    <div id="search-results" class="hidden"></div>
+                    <div id="search-results" class="hidden" role="listbox"></div>
                 </div>
+
+                <!-- User Info -->
                 <div id="user-info" class="hidden">
-                    <a id="profile-link" href="#" class="profile-button">
-                        <img id="user-avatar" src="https://placehold.co/32" alt="Profile">
+                    <a id="profile-link" href="#" class="profile-button" aria-label="View profile">
+                        <img id="user-avatar" src="https://placehold.co/32" alt="Profile" width="32" height="32">
                         <span id="username"></span>
                     </a>
-                    <button id="logout-btn" class="icon-button">
-                        <i class="fas fa-sign-out-alt"></i>
+                    <button id="logout-btn" class="icon-button" aria-label="Logout">
+                        <i class="fas fa-sign-out-alt" aria-hidden="true"></i>
                     </button>
                 </div>
             </div>
@@ -37,65 +59,71 @@
     </nav>
 
     <main>
+        <!-- Login Section -->
+        <div id="login-section" class="center animate__animated animate__fadeIn">
+            <div class="login-container">
+                <div class="login-header">
+                    <i class="fas fa-headphones-alt header-icon" aria-hidden="true"></i>
+                    <h1>Track Your Music Journey</h1>
+                    <p>Connect with Spotify to share your listening activity with friends</p>
+                </div>
 
-<div id="login-section" class="center animate__animated animate__fadeIn">
-    <div class="login-container">
-        <div class="login-header">
-            <i class="fas fa-headphones-alt header-icon"></i>
-            <h1>Track Your Music Journey</h1>
-            <p>Connect with Spotify to share your listening activity with friends</p>
-        </div>
+                <div class="login-options">
+                    <button id="quick-login-btn" class="spotify-btn">
+                        <i class="fab fa-spotify" aria-hidden="true"></i>
+                        Quick Login with Spotify
+                    </button>
+                    
+                    <div class="divider">
+                        <span>OR</span>
+                    </div>
 
-        <div class="login-options">
-            <button id="quick-login-btn" class="spotify-btn">
-                <i class="fab fa-spotify"></i>
-                Quick Login with Spotify
-            </button>
-            
-            <div class="divider">
-                <span>OR</span>
+                    <button id="custom-url-toggle" class="secondary-btn">
+                        <i class="fas fa-link" aria-hidden="true"></i>
+                        Choose Custom Profile URL
+                    </button>
+                </div>
+
+                <div id="custom-url-section" class="url-input-container hidden animate__animated animate__fadeIn">
+                    <label for="custom-url-input">Choose your profile URL:</label>
+                    <div class="url-input-wrapper">
+                        <span class="url-prefix" aria-hidden="true">app.versz.fun/</span>
+                        <input 
+                            type="text" 
+                            id="custom-url-input" 
+                            placeholder="your-username"
+                            pattern="[a-zA-Z0-9_-]{3,30}"
+                            aria-describedby="url-status"
+                        >
+                    </div>
+                    <p id="url-status" class="text-sm"></p>
+                    
+                    <button id="custom-login-btn" class="spotify-btn" disabled>
+                        <i class="fab fa-spotify" aria-hidden="true"></i>
+                        Continue with Custom URL
+                    </button>
+                </div>
             </div>
-
-            <button id="custom-url-toggle" class="secondary-btn">
-                <i class="fas fa-link"></i>
-                Choose Custom Profile URL
-            </button>
         </div>
-
-        <div id="custom-url-section" class="url-input-container hidden animate__animated animate__fadeIn">
-            <label for="custom-url-input">Choose your profile URL:</label>
-            <div class="url-input-wrapper">
-                <span class="url-prefix">app.versz.fun/</span>
-                <input 
-                    type="text" 
-                    id="custom-url-input" 
-                    placeholder="your-username"
-                    pattern="[a-zA-Z0-9_-]{3,30}"
-                >
-            </div>
-            <p id="url-status" class="text-sm"></p>
-            
-            <button id="custom-login-btn" class="spotify-btn">
-                <i class="fab fa-spotify"></i>
-                Continue with Custom URL
-            </button>
-        </div>
-    </div>
-</div>
-
+                <!-- Profile Section -->
         <div id="profile-section" class="hidden animate__animated animate__fadeIn">
             <div class="profile-header">
                 <div class="profile-avatar-wrapper">
-                    <img id="profile-avatar" src="https://placehold.co/32" alt="Profile">
+                    <img id="profile-avatar" 
+                         src="https://placehold.co/120" 
+                         alt="Profile picture"
+                         width="120"
+                         height="120"
+                         loading="eager">
                 </div>
                 <div class="profile-info">
                     <h1 id="profile-username"></h1>
                     <div class="stats">
-                        <div class="stat">
+                        <div class="stat" role="status">
                             <span id="tracks-count">0</span>
                             <label>Tracks</label>
                         </div>
-                        <div class="stat">
+                        <div class="stat" role="status">
                             <span id="artists-count">0</span>
                             <label>Artists</label>
                         </div>
@@ -104,61 +132,153 @@
             </div>
     
             <div class="content-grid">
+                <!-- Current Track Card -->
                 <div id="current-track" class="track-card animate__animated animate__fadeIn">
                     <div class="card-header">
-                        <h2><i class="fas fa-play"></i> Now Playing</h2>
+                        <h2>
+                            <i class="fas fa-play" aria-hidden="true"></i>
+                            Now Playing
+                        </h2>
                         <div class="live-indicator">
-                            <span class="pulse"></span>
-                            LIVE
+                            <span class="pulse" aria-hidden="true"></span>
+                            <span>LIVE</span>
                         </div>
                     </div>
-                    <div id="current-track-info" class="track-content">
+                    <div id="current-track-info" class="track-content" role="region" aria-live="polite">
                         <div class="placeholder-text">
-                            <i class="fas fa-music"></i>
-                            Not playing anything right now
+                            <i class="fas fa-music" aria-hidden="true"></i>
+                            <span>Not playing anything right now</span>
                         </div>
                     </div>
                 </div>
     
+                <!-- Recent Tracks Card -->
                 <div id="recent-tracks" class="track-card animate__animated animate__fadeIn">
                     <div class="card-header">
-                        <h2><i class="fas fa-history"></i> Recently Played</h2>
+                        <h2>
+                            <i class="fas fa-history" aria-hidden="true"></i>
+                            Recently Played
+                        </h2>
                     </div>
-                    <div id="tracks-list" class="scrollable-content"></div>
+                    <div id="tracks-list" class="scrollable-content" role="list"></div>
                 </div>
     
+                <!-- Top Tracks Card -->
                 <div id="top-tracks" class="track-card animate__animated animate__fadeIn">
                     <div class="card-header">
-                        <h2><i class="fas fa-chart-line"></i> Top Tracks</h2>
+                        <h2>
+                            <i class="fas fa-chart-line" aria-hidden="true"></i>
+                            Top Tracks
+                        </h2>
                     </div>
-                    <div id="top-tracks-list" class="scrollable-content"></div>
+                    <div id="top-tracks-list" class="scrollable-content" role="list"></div>
                 </div>
     
+                <!-- Top Artists Card -->
                 <div id="top-artists" class="track-card animate__animated animate__fadeIn">
                     <div class="card-header">
-                        <h2><i class="fas fa-star"></i> Top Artists</h2>
+                        <h2>
+                            <i class="fas fa-star" aria-hidden="true"></i>
+                            Top Artists
+                        </h2>
                     </div>
-                    <div id="top-artists-list" class="scrollable-content"></div>
+                    <div id="top-artists-list" class="scrollable-content" role="list"></div>
                 </div>
+
+                <!-- Playlists Card -->
                 <div id="playlists" class="track-card animate__animated animate__fadeIn">
                     <div class="card-header">
-                        <h2><i class="fas fa-music"></i> Playlists</h2>
+                        <h2>
+                            <i class="fas fa-music" aria-hidden="true"></i>
+                            Playlists
+                        </h2>
                     </div>
-                    <div id="playlists-list" class="playlists-grid"></div>
+                    <div id="playlists-list" class="playlists-grid" role="grid"></div>
                 </div>
-                
-            
             </div>
         </div>
 
-        <div id="error-container">
+        <!-- Playlist Detail View -->
+        <div id="playlist-detail" class="hidden animate__animated animate__fadeIn">
+            <div class="playlist-header">
+                <button class="back-button" aria-label="Go back">
+                    <i class="fas fa-arrow-left" aria-hidden="true"></i>
+                </button>
+                <div class="playlist-info">
+                    <div class="playlist-cover-wrapper">
+                        <img id="playlist-cover" src="https://placehold.co/300" alt="Playlist cover">
+                    </div>
+                    <div class="playlist-details">
+                        <span class="playlist-type">PLAYLIST</span>
+                        <h1 id="playlist-name"></h1>
+                        <div class="playlist-meta">
+                            <span id="playlist-owner"></span>
+                            <span id="playlist-tracks-count"></span>
+                        </div>
+                        <a id="spotify-playlist-link" 
+                           class="spotify-button" 
+                           target="_blank" 
+                           rel="noopener noreferrer">
+                            <i class="fab fa-spotify" aria-hidden="true"></i>
+                            Open in Spotify
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div id="playlist-tracks" class="track-list" role="list"></div>
+        </div>
+
+        <!-- Error Container -->
+        <div id="error-container" role="alert" aria-live="polite">
             <div id="login-error" class="error-message hidden"></div>
             <div id="profile-error" class="error-message hidden"></div>
             <div id="track-error" class="error-message hidden"></div>
         </div>
+
+        <!-- Toast Container -->
+        <div class="toast-container" role="alert" aria-live="polite"></div>
+
+        <!-- Loading Overlay -->
+        <div id="loading-overlay" class="loading-overlay hidden">
+            <div class="loading-spinner">
+                <i class="fas fa-circle-notch fa-spin"></i>
+                <span>Loading...</span>
+            </div>
+        </div>
     </main>
 
+    <!-- Templates -->
+    <template id="track-item-template">
+        <div class="track-item" role="listitem">
+            <img class="track-artwork" alt="Album artwork" loading="lazy">
+            <div class="track-details">
+                <div class="track-name"></div>
+                <div class="track-artist"></div>
+                <div class="track-time"></div>
+            </div>
+        </div>
+    </template>
+
+    <template id="artist-item-template">
+        <div class="artist-item" role="listitem">
+            <div class="artist-rank"></div>
+            <img class="artist-artwork" alt="Artist photo" loading="lazy">
+            <div class="artist-details">
+                <div class="artist-name"></div>
+                <div class="artist-genres"></div>
+            </div>
+        </div>
+    </template>
+
+    <!-- Scripts -->
     <script src="config.js"></script>
     <script src="app.js"></script>
+
+    <!-- Fallback for JavaScript disabled -->
+    <noscript>
+        <div class="noscript-message">
+            Please enable JavaScript to use versz. This application requires JavaScript to function properly.
+        </div>
+    </noscript>
 </body>
 </html>
